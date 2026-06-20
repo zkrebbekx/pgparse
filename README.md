@@ -4,6 +4,12 @@ A **pure-Go PostgreSQL SQL parser**. No cgo. No WebAssembly runtime. No native
 library to link. It compiles into any Go program as ordinary source and imposes
 **zero per-process memory overhead at startup**.
 
+### ▶ [Try it live in your browser → zkrebbekx.github.io/pgparse](https://zkrebbekx.github.io/pgparse/)
+
+Type any PostgreSQL and watch it parse instantly — AST tree, read/write
+classification, and real µs/parse timing, running 100% client-side (no server,
+your SQL never leaves the tab).
+
 It exists to fill the gap between the two common options:
 
 | Approach | Cost |
