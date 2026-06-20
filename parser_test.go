@@ -111,6 +111,32 @@ func TestSelect(t *testing.T) {
 		})
 	})
 
+	Convey("Given a data-modifying CTE (UPDATE ... RETURNING)", t, func() {
+		Convey("When parsed", func() {
+			s, err := ParseOne("WITH upd AS (UPDATE t SET a = 1 WHERE id = $1 RETURNING id, a) SELECT * FROM upd")
+			Convey("Then the CTE body is an UpdateStmt with RETURNING", func() {
+				So(err, ShouldBeNil)
+				sel := s.(*SelectStmt)
+				So(len(sel.With), ShouldEqual, 1)
+				up := sel.With[0].Stmt.(*UpdateStmt)
+				So(up.Table.Name, ShouldEqual, "t")
+				So(len(up.Returning), ShouldEqual, 2)
+			})
+		})
+	})
+
+	Convey("Given a DELETE-CTE feeding an INSERT", t, func() {
+		Convey("When parsed", func() {
+			s, err := ParseOne("WITH moved AS (DELETE FROM t WHERE x < $1 RETURNING *) INSERT INTO archive SELECT * FROM moved")
+			Convey("Then the outer statement is an INSERT carrying the data-modifying CTE", func() {
+				So(err, ShouldBeNil)
+				ins := s.(*InsertStmt)
+				So(len(ins.With), ShouldEqual, 1)
+				So(ins.With[0].Stmt, ShouldHaveSameTypeAs, &DeleteStmt{})
+			})
+		})
+	})
+
 	Convey("Given a window function", t, func() {
 		Convey("When parsed", func() {
 			s, err := ParseOne("SELECT row_number() OVER (PARTITION BY dept ORDER BY salary DESC) FROM emp")

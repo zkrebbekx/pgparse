@@ -23,6 +23,8 @@ func TestRoundTrip(t *testing.T) {
 			"SELECT * FROM a JOIN b ON a.id = b.a_id LEFT JOIN c USING (k)",
 			"SELECT 1 UNION SELECT 2 INTERSECT SELECT 3",
 			"WITH r AS (SELECT * FROM o) SELECT count(*) FROM r WHERE x IS NOT NULL",
+			"WITH upd AS (UPDATE t SET a = 1 WHERE id = $1 RETURNING id, a) SELECT * FROM upd",
+			"WITH moved AS (DELETE FROM t WHERE x < $1 RETURNING *) INSERT INTO archive SELECT * FROM moved",
 			"SELECT a->b->>'c' #> '{x}' FROM t WHERE a @> b",
 			"SELECT x[1], y[1:2] FROM t",
 			"SELECT row_number() OVER (PARTITION BY d ORDER BY s DESC) FROM e",
