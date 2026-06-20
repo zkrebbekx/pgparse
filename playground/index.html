@@ -1,49 +1,55 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>pgparse playground 🐘 — PostgreSQL parsed in your browser</title>
-<meta name="description" content="A pure-Go PostgreSQL parser running entirely in your browser via WebAssembly. No server, no cost, your SQL never leaves this tab." />
+<title>pgparse — PostgreSQL parser, in your browser</title>
+<meta name="description" content="A pure-Go PostgreSQL parser running entirely in your browser via WebAssembly. Live AST, read/write classification, microsecond parse times. No server; your SQL never leaves the tab." />
 <link rel="stylesheet" href="style.css" />
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐘</text></svg>" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%236e8bff'/><text x='50' y='72' font-size='62' text-anchor='middle' fill='white' font-family='monospace'>p</text></svg>" />
 </head>
 <body>
-<canvas id="confetti"></canvas>
-
-<header class="hero">
-  <h1><span class="ele">🐘</span> pgparse <span class="play">playground</span></h1>
-  <p class="tag">PostgreSQL, parsed at <b>warp speed</b> — entirely in your browser.</p>
-  <div class="badges">
-    <span class="badge live"><span class="dot"></span> 100% client-side</span>
-    <span class="badge" id="speed">⚡ warming up…</span>
-    <span class="badge">0 servers · your SQL never leaves this tab</span>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">p</span>
+    <span class="name">pgparse</span>
+    <span class="sub">PostgreSQL parser, in your browser</span>
+  </div>
+  <div class="controls">
+    <span class="chip ghost client">runs 100% client-side</span>
+    <button id="theme" class="iconbtn" title="Toggle theme" aria-label="Toggle theme"></button>
+    <a class="iconbtn" href="https://github.com/zkrebbekx/pgparse" target="_blank" rel="noopener" title="GitHub" aria-label="GitHub">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+    </a>
   </div>
 </header>
 
 <main>
   <section class="panel editor-panel">
-    <div class="toolbar" id="examples">
-      <button data-ex="cte">🪜 CTE + window</button>
-      <button data-ex="dml">✏️ Modifying CTE</button>
-      <button data-ex="upsert">🔀 Upsert</button>
-      <button data-ex="ddl">🏗️ CREATE TABLE</button>
-      <button data-ex="json">🧬 JSON ops</button>
-      <button data-ex="dice" class="dice">🎲 Surprise me</button>
+    <div class="toolbar">
+      <div class="examples" id="examples">
+        <button data-ex="cte">CTE + window</button>
+        <button data-ex="dml">Modifying CTE</button>
+        <button data-ex="upsert">Upsert</button>
+        <button data-ex="ddl">CREATE TABLE</button>
+        <button data-ex="json">JSON ops</button>
+        <button data-ex="gnarly">Lateral join</button>
+      </div>
+      <button data-ex="dice" id="dice" class="randombtn">↺ Random</button>
     </div>
     <textarea id="sql" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
     <div class="err" id="err" hidden></div>
   </section>
 
   <section class="panel result-panel">
-    <div class="verdict" id="verdict">
-      <div class="vemoji" id="vemoji">🐘</div>
-      <div class="vtext"><div class="vlabel" id="vlabel">Type some SQL…</div>
-      <div class="vsub" id="vsub">parsed live as you type</div></div>
+    <div class="resbar">
+      <span class="pill" id="verdict"><span class="dot"></span><span id="vlabel">—</span></span>
+      <span class="meta" id="meta"></span>
+      <span class="speed" id="speed" title="real in-browser parse time">— µs</span>
     </div>
     <div class="tabs">
-      <button class="tab active" data-tab="tree">🌳 AST tree</button>
-      <button class="tab" data-tab="sql">✨ Formatted</button>
+      <button class="tab active" data-tab="tree">AST</button>
+      <button class="tab" data-tab="sql">Formatted</button>
     </div>
     <div class="tabbody">
       <div id="tab-tree" class="tabpane active"></div>
@@ -53,11 +59,11 @@
 </main>
 
 <footer>
-  <span>pure Go → WebAssembly · ~930&nbsp;KB one-time · runs offline</span>
-  <a href="https://github.com/zkrebbekx/pgparse" target="_blank" rel="noopener">★ github.com/zkrebbekx/pgparse</a>
+  <span>pure Go → WebAssembly · ~930&nbsp;KB · runs offline · 0 servers · your SQL never leaves this tab</span>
+  <a href="https://github.com/zkrebbekx/pgparse" target="_blank" rel="noopener">github.com/zkrebbekx/pgparse ↗</a>
 </footer>
 
-<div id="loader" class="loader"><div class="spin">🐘</div><span>loading the parser…</span></div>
+<div id="loader" class="loader"><div class="spin"></div><span>loading parser…</span></div>
 
 <script src="wasm_exec.js"></script>
 <script src="app.js"></script>
