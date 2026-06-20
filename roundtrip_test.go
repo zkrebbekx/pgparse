@@ -33,6 +33,9 @@ func TestRoundTrip(t *testing.T) {
 			"DELETE FROM logs WHERE created_at < $1 RETURNING id",
 			"SELECT CASE WHEN a > 0 THEN 'p' ELSE 'n' END, (a + b) * c FROM t",
 			"SELECT extract(year FROM d), substring(p FROM 1 FOR 2) FROM t",
+			"(SELECT 1 UNION SELECT 2) INTERSECT SELECT 3",
+			"SELECT 1 UNION (SELECT 2 EXCEPT SELECT 3)",
+			"(SELECT a FROM t ORDER BY a LIMIT 1) UNION SELECT b FROM u",
 		}
 
 		Convey("When parsed, deparsed, and re-parsed", func() {

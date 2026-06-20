@@ -71,7 +71,7 @@ func (d *deparser) with(ctes []*CTE) {
 func (d *deparser) selectStmt(s *SelectStmt) {
 	d.with(s.With)
 	if s.SetOp != SetOpNone {
-		d.selectStmt(s.Left)
+		d.setOperand(s.Left)
 		switch s.SetOp {
 		case SetOpUnion:
 			d.ws(" UNION ")
@@ -83,7 +83,7 @@ func (d *deparser) selectStmt(s *SelectStmt) {
 		if s.SetAll {
 			d.ws("ALL ")
 		}
-		d.selectStmt(s.Right)
+		d.setOperand(s.Right)
 		d.tail(s)
 		return
 	}
@@ -120,6 +120,20 @@ func (d *deparser) selectStmt(s *SelectStmt) {
 		d.expr(s.Having)
 	}
 	d.tail(s)
+}
+
+// setOperand renders one operand of a set operation, wrapping it in parentheses
+// when it is itself a set operation or carries a trailing ORDER BY/LIMIT/OFFSET.
+// Without this, the flat output would re-parse to a differently-grouped tree
+// (set-operator precedence and left-associativity would regroup the operands).
+func (d *deparser) setOperand(s *SelectStmt) {
+	if s.SetOp != SetOpNone || len(s.OrderBy) > 0 || s.Limit != nil || s.Offset != nil {
+		d.ws("(")
+		d.selectStmt(s)
+		d.ws(")")
+		return
+	}
+	d.selectStmt(s)
 }
 
 func (d *deparser) tail(s *SelectStmt) {

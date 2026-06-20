@@ -106,7 +106,9 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		}
 	}
 	switch {
-	case p.isKw(kwSelect):
+	case p.isKw(kwSelect), p.cur().Type == TokenLParen:
+		// A statement may be a parenthesised set-operation select, e.g.
+		// "(SELECT 1 UNION SELECT 2) INTERSECT SELECT 3".
 		s, err := p.parseSelect()
 		if err != nil {
 			return nil, err
