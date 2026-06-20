@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="playground/logo.png" alt="pgparse" width="200" />
+</p>
+
 # pgparse
 
 [![ci](https://github.com/zkrebbekx/pgparse/actions/workflows/ci.yml/badge.svg)](https://github.com/zkrebbekx/pgparse/actions/workflows/ci.yml)

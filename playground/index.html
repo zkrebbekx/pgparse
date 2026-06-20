@@ -6,12 +6,18 @@
 <title>pgparse — PostgreSQL parser, in your browser</title>
 <meta name="description" content="A pure-Go PostgreSQL parser running entirely in your browser via WebAssembly. Live AST, read/write classification, microsecond parse times. No server; your SQL never leaves the tab." />
 <link rel="stylesheet" href="style.css" />
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%236e8bff'/><text x='50' y='72' font-size='62' text-anchor='middle' fill='white' font-family='monospace'>p</text></svg>" />
+<link rel="icon" type="image/png" href="favicon.png" />
+<meta property="og:title" content="pgparse — PostgreSQL parser in your browser" />
+<meta property="og:description" content="Parse any PostgreSQL instantly, 100% client-side: live AST, read/write classification, microsecond timing. No server." />
+<meta property="og:image" content="https://zkrebbekx.github.io/pgparse/logo.png" />
+<meta property="og:url" content="https://zkrebbekx.github.io/pgparse/" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:image" content="https://zkrebbekx.github.io/pgparse/logo.png" />
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
-    <span class="logo">p</span>
+    <img class="logo" src="logo.png" alt="pgparse logo" width="28" height="28" />
     <span class="name">pgparse</span>
     <span class="sub">PostgreSQL parser, in your browser</span>
   </div>

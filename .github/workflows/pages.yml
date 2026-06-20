@@ -33,6 +33,7 @@ jobs:
       - name: Assemble site
         run: |
           cp playground/index.html playground/style.css playground/app.js dist/
+          cp playground/logo.png playground/favicon.png dist/
           if [ -f "$(go env GOROOT)/lib/wasm/wasm_exec.js" ]; then
             cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" dist/
           else
