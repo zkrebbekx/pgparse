@@ -160,6 +160,49 @@ func TestExpressions(t *testing.T) {
 	})
 }
 
+func TestPostgresConstructs(t *testing.T) {
+	Convey("Given Postgres-specific literal and function syntax", t, func() {
+		Convey("When a typed date literal is parsed", func() {
+			s, err := ParseOne("SELECT date '1998-12-01'")
+			Convey("Then it becomes a cast of a string literal", func() {
+				So(err, ShouldBeNil)
+				c := s.(*SelectStmt).Columns[0].Expr.(*CastExpr)
+				So(c.Type, ShouldEqual, "date")
+				So(c.Expr.(*Literal).Val, ShouldEqual, "1998-12-01")
+			})
+		})
+
+		Convey("When INTERVAL with a unit is parsed", func() {
+			s, err := ParseOne("SELECT date '1998-12-01' - interval '90' day")
+			Convey("Then the trailing unit is consumed", func() {
+				So(err, ShouldBeNil)
+				So(s.(*SelectStmt).Columns[0].Expr, ShouldHaveSameTypeAs, &BinaryExpr{})
+			})
+		})
+
+		Convey("When extract(field FROM source) is parsed", func() {
+			s, err := ParseOne("SELECT extract(year FROM o_orderdate) FROM orders")
+			Convey("Then a func call with field and source args is built", func() {
+				So(err, ShouldBeNil)
+				fc := s.(*SelectStmt).Columns[0].Expr.(*FuncCall)
+				So(fc.Name, ShouldEqual, "extract")
+				So(len(fc.Args), ShouldEqual, 2)
+				So(fc.Args[0].(*Literal).Val, ShouldEqual, "year")
+			})
+		})
+
+		Convey("When substring(x FROM a FOR b) is parsed", func() {
+			s, err := ParseOne("SELECT substring(c_phone FROM 1 FOR 2) FROM customer")
+			Convey("Then three arguments are captured", func() {
+				So(err, ShouldBeNil)
+				fc := s.(*SelectStmt).Columns[0].Expr.(*FuncCall)
+				So(fc.Name, ShouldEqual, "substring")
+				So(len(fc.Args), ShouldEqual, 3)
+			})
+		})
+	})
+}
+
 func TestDML(t *testing.T) {
 	Convey("Given an INSERT with columns, VALUES and RETURNING", t, func() {
 		Convey("When parsed", func() {

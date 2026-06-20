@@ -130,6 +130,34 @@ Reproduce:
 make bench
 ```
 
+### Head-to-head vs `pg_query_go`
+
+Benchmarked over the **TPC-H** query corpus (the 21 of 22 queries that are pure
+DML — Q15 is `CREATE VIEW`, which pgparse does not target). Both engines parse
+the **identical** queries; `pg_query_go` is the cgo binding around the real
+PostgreSQL parser. Apple M-series, Go 1.26, `go test -bench=Corpus -benchmem`:
+
+| Engine | ns / query | B / query | allocs / query |
+|---|--:|--:|--:|
+| **pgparse** | **~13,200** | **~9,300** | **~94** |
+| `pg_query_go` | ~358,000 | ~18,900 | ~395 |
+| **pgparse advantage** | **~27× faster** | **~2× less** | **~4× fewer** |
+
+`pg_query_go` does strictly *more* — it produces the full-fidelity PostgreSQL
+node tree for **every** statement kind. Its per-call cost includes the cgo
+boundary and protobuf (de)serialization of that tree, which is the real price a
+Go program pays to use it. pgparse trades exhaustive fidelity for a lean Go AST,
+no cgo, and the throughput above. Pick accordingly.
+
+The comparison lives in a **separate module** (`comparison/`) so the root module
+never pulls in cgo. Reproduce:
+
+```bash
+make compare        # see Makefile; sets the macOS CGO workaround
+```
+
+Coverage of the corpus is asserted by `TestTPCHCoverage` (21/22).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

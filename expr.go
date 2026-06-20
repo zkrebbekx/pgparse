@@ -347,6 +347,10 @@ func (p *Parser) parseKeywordPrimary(t Token) (Expr, error) {
 			return nil, p.errf(s, "expected string after INTERVAL")
 		}
 		p.advance()
+		// Optional unit qualifier: INTERVAL '90' day, INTERVAL '1-2' year to month.
+		for isIntervalUnit(p.cur()) {
+			p.advance()
+		}
 		return &CastExpr{Expr: &Literal{Kind: LitString, Val: unquoteString(s.Val)}, Type: "interval"}, nil
 	}
 	return nil, p.errf(t, "unexpected keyword %q in expression", t.Val)
@@ -428,6 +432,14 @@ func (p *Parser) parseNameOrCall() (Expr, error) {
 		}
 		parts = append(parts, id)
 	}
+	// Typed string literal: TYPE 'literal' (e.g. date '1998-12-01').
+	if len(parts) == 1 && p.cur().Type == TokenString && isTypeWord(parts[0]) {
+		s := p.advance()
+		return &CastExpr{
+			Expr: &Literal{Kind: LitString, Val: unquoteString(s.Val)},
+			Type: strings.ToLower(parts[0]),
+		}, nil
+	}
 	if p.cur().Type == TokenLParen {
 		return p.parseCallTail(parts)
 	}
@@ -446,7 +458,11 @@ func (p *Parser) parseCallTail(parts []string) (Expr, error) {
 		return nil, p.errf(p.cur(), "function name has too many qualifiers")
 	}
 	p.advance() // (
-	if p.cur().Type == TokenStar {
+	if fc.Schema == "" && isSpecialFunc(fc.Name) {
+		if err := p.parseSpecialArgs(fc); err != nil {
+			return nil, err
+		}
+	} else if p.cur().Type == TokenStar {
 		p.advance()
 		fc.Star = true
 	} else if p.cur().Type != TokenRParen {
