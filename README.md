@@ -163,8 +163,31 @@ PostgreSQL parser) is the fidelity baseline; pgparse and
 | DDL `CREATE TABLE` | ✓ | ✓ | ✓ |
 
 pgparse matches the real-PostgreSQL baseline across all 23 representative
-constructs, and parses the multi-column `UPDATE` form GoSQLX rejects. Reproduce
-with `make compare`.
+constructs, and parses the multi-column `UPDATE` form GoSQLX rejects.
+
+### Breadth: the PostgreSQL regression suite
+
+A 23-feature matrix only proves the happy path. For a breadth measure, pgparse
+is run against a subset of PostgreSQL's own [regression test suite](comparison/testdata/regress)
+(`src/test/regress/sql`) — the SQL that `libpg_query`/`pg_query_go` is validated
+against. Each file is split into statements; a statement counts only when
+`pg_query_go` (the real parser) accepts it, which discards psql meta-commands
+and the suite's deliberately-invalid cases. The score is the share of those
+genuinely-valid statements each pure-Go parser also accepts:
+
+| | statements | accepted |
+|---|--:|--:|
+| **pgparse** | 7,985 | **53.0%** |
+| GoSQLX | 7,985 | 48.4% |
+
+pgparse leads GoSQLX overall and on most files. This is the honest breadth
+number: the remaining ~47% are constructs pgparse intentionally does not target
+(GROUPING SETS / ROLLUP / CUBE, `FETCH FIRST … WITH TIES`, `ORDER BY … USING`,
+table partitioning, generated/identity columns, multi-word type names, and the
+long tail of DDL options). It is a pragmatic DML+DDL parser, not a full
+reimplementation of the PostgreSQL grammar — for that, use `pg_query_go`.
+
+Reproduce both with `make compare`.
 
 ## Performance
 

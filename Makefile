@@ -15,7 +15,7 @@ compare:
 	cd comparison && CGO_CFLAGS="-DHAVE_STRCHRNUL -Wno-error" \
 		go test -run=^$$ -bench=Corpus -benchmem -benchtime=2s
 	cd comparison && CGO_CFLAGS="-DHAVE_STRCHRNUL -Wno-error" \
-		go test -run='TestReport|TestCompleteness' -v
+		go test -run='TestReport|TestCompleteness|TestRegressCompleteness' -v
 
 vet:
 	go vet ./...
