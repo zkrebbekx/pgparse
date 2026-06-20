@@ -187,6 +187,11 @@ errors, never crashes or hangs.
 go test -fuzz=FuzzParse -fuzztime=30s
 ```
 
+The suite is BDD (goconvey), race-tested for concurrency, round-trips every
+parse through the deparser, and drives the full PostgreSQL regression corpus
+through parse → classify → deparse → re-parse — **~89% statement coverage**
+(`go test -cover`).
+
 ## Completeness vs other Go parsers
 
 A feature-by-feature acceptance matrix (in [`comparison/`](comparison)) over 23
