@@ -249,6 +249,53 @@ when you want most of the SQL real apps write, ~18× faster, with no cgo.
 
 Reproduce all of the above with `make compare`.
 
+### Memory, CPU & concurrency vs cgo / wasm
+
+The original motivation for pgparse was a WebAssembly build of `pg_query`
+([`wasilibs/go-pgquery`](https://github.com/wasilibs/go-pgquery), which runs
+libpg_query as a wasm module via wazero) using too much memory. That is real and
+measurable. Each engine here parsed the regression corpus repeatedly; RSS is the
+process peak (cgo and wasm memory does not appear in Go's `MemStats`). Apple
+M-series, one process per engine (`make memcompare`):
+
+**Single-threaded**
+
+| engine | ns / statement | startup RSS | peak RSS |
+|---|--:|--:|--:|
+| **pgparse** | **~2,600** | **4 MB** | **19 MB** |
+| GoSQLX | ~7,700 | 6 MB | 21 MB |
+| pg_query_go (cgo) | ~49,000 | 11 MB | 27 MB |
+| go-pgquery (wasm) | ~93,000 | 255 MB | 272 MB |
+
+**8 concurrent workers**
+
+| engine | ns / statement | peak RSS |
+|---|--:|--:|
+| **pgparse** | **~1,260** | **26 MB** |
+| GoSQLX | ~4,700 | 28 MB |
+| pg_query_go (cgo) | ~7,300 | 32 MB |
+| go-pgquery (wasm) | ~26,800 | **2,487 MB** |
+
+**The wasm memory issue, and why pgparse avoids it.** WebAssembly linear memory
+can only *grow* — `memory.grow` never shrinks, and freed blocks are not returned
+to the OS. A wasm parser therefore ratchets up to the high-water mark of the
+largest/most queries it has seen and stays there; because a wazero instance is
+single-threaded, concurrency needs a pool of instances, each holding its own
+grown memory. In the table above that compounds to **~2.4 GB** under 8 workers,
+on top of a **255 MB** fixed startup cost.
+
+pgparse has none of this: it is pure Go with no linear memory, so each parse
+allocates only its AST (tokens alias the input string — zero copy) and the
+garbage collector reclaims it and returns pages to the OS. Memory stays **flat
+(~26 MB) under 8× concurrency**, ~95× less than the wasm build and below the cgo
+binding, while running ~5–20× faster.
+
+**Concurrency safety.** pgparse holds no shared mutable state — the keyword and
+word tables are read-only, and each `Parse` builds its own lexer and parser — so
+it is safe to call from any number of goroutines with no pool and no lock. This
+is enforced by a `-race` test ([`concurrent_test.go`](concurrent_test.go))
+running tens of thousands of overlapping parses.
+
 ## Performance
 
 Hand-written byte scanner (no regex) producing tokens whose values alias the

@@ -11,7 +11,12 @@ the real PostgreSQL parser) and [GoSQLX](https://github.com/ajitpratap0/GoSQLX)
 - `TestRegressCompleteness` — breadth over a subset of the **PostgreSQL
   regression suite** ([`testdata/regress`](testdata/regress)): each file split
   into statements, scored as the fraction of `pg_query_go`-valid statements that
-  pgparse / GoSQLX also accept. ~7,985 valid statements; pgparse 53.0%, GoSQLX 48.4%.
+  pgparse / GoSQLX also accept. ~7,985 valid statements; pgparse 97.8%, GoSQLX 48.4%.
+- `cmd/memprobe` + `cmd/memprobe-cgo` — CPU/RAM probes used by `make memcompare`,
+  comparing pgparse, GoSQLX, the cgo `pg_query_go`, and the wasm
+  [`go-pgquery`](https://github.com/wasilibs/go-pgquery) on latency and peak RSS,
+  single-threaded and concurrent. (cgo and wasm bundle conflicting libpg_query
+  symbols, so each is a separate binary.)
 
 This is a **separate Go module** on purpose: `pg_query_go` requires cgo and a C
 toolchain, and the root `pgparse` module must stay cgo-free. Nothing here is
