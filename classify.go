@@ -19,15 +19,22 @@ const (
 	// ClassUtility is a recognised utility/admin statement whose effect pgparse
 	// does not model and which may write (COPY, EXPLAIN, DO, CALL, ...).
 	ClassUtility
+	// ClassTransaction is transaction control (BEGIN/COMMIT/ROLLBACK/SAVEPOINT/
+	// …). It changes neither data nor schema, so Mutates reports false.
+	ClassTransaction
 )
+
+// rawTxn holds the transaction-control leading keywords.
+var rawTxn = map[string]bool{
+	"begin": true, "start": true, "commit": true, "end": true,
+	"rollback": true, "abort": true, "savepoint": true, "release": true,
+}
 
 // rawReadOnly holds RawStmt leading keywords that neither change data nor
 // schema. Anything not listed here or in rawDDL is treated conservatively as
 // possibly-mutating.
 var rawReadOnly = map[string]bool{
-	"show": true, "set": true, "reset": true, "begin": true, "start": true,
-	"commit": true, "end": true, "rollback": true, "abort": true,
-	"savepoint": true, "release": true, "fetch": true, "move": true,
+	"show": true, "set": true, "reset": true, "fetch": true, "move": true,
 	"close": true, "declare": true, "listen": true, "unlisten": true,
 	"discard": true, "checkpoint": true, "deallocate": true, "prepare": true,
 	"lock": true, "analyze": true, "analyse": true, "vacuum": true, "load": true,
@@ -63,6 +70,8 @@ func Classify(s Stmt) StmtClass {
 	case *RawStmt:
 		kw := strings.ToLower(x.Keyword)
 		switch {
+		case rawTxn[kw]:
+			return ClassTransaction
 		case rawReadOnly[kw]:
 			return ClassReadOnly
 		case rawDDL[kw]:
@@ -85,7 +94,7 @@ func Classify(s Stmt) StmtClass {
 // is treated as possibly-mutating because EXPLAIN ANALYZE executes its argument.
 func Mutates(s Stmt) bool {
 	switch Classify(s) {
-	case ClassReadOnly:
+	case ClassReadOnly, ClassTransaction:
 		return false
 	default:
 		return true

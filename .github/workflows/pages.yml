@@ -1,0 +1,54 @@
+name: playground
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'playground/**'
+      - '**/*.go'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Build wasm
+        run: |
+          mkdir -p dist
+          cd playground && GOOS=js GOARCH=wasm go build -o ../dist/pgparse.wasm ./wasm
+      - name: Assemble site
+        run: |
+          cp playground/index.html playground/style.css playground/app.js dist/
+          if [ -f "$(go env GOROOT)/lib/wasm/wasm_exec.js" ]; then
+            cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" dist/
+          else
+            cp "$(go env GOROOT)/misc/wasm/wasm_exec.js" dist/
+          fi
+          ls -la dist
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

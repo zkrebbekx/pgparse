@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pgparse playground 🐘 — PostgreSQL parsed in your browser</title>
+<meta name="description" content="A pure-Go PostgreSQL parser running entirely in your browser via WebAssembly. No server, no cost, your SQL never leaves this tab." />
+<link rel="stylesheet" href="style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐘</text></svg>" />
+</head>
+<body>
+<canvas id="confetti"></canvas>
+
+<header class="hero">
+  <h1><span class="ele">🐘</span> pgparse <span class="play">playground</span></h1>
+  <p class="tag">PostgreSQL, parsed at <b>warp speed</b> — entirely in your browser.</p>
+  <div class="badges">
+    <span class="badge live"><span class="dot"></span> 100% client-side</span>
+    <span class="badge" id="speed">⚡ warming up…</span>
+    <span class="badge">0 servers · your SQL never leaves this tab</span>
+  </div>
+</header>
+
+<main>
+  <section class="panel editor-panel">
+    <div class="toolbar" id="examples">
+      <button data-ex="cte">🪜 CTE + window</button>
+      <button data-ex="dml">✏️ Modifying CTE</button>
+      <button data-ex="upsert">🔀 Upsert</button>
+      <button data-ex="ddl">🏗️ CREATE TABLE</button>
+      <button data-ex="json">🧬 JSON ops</button>
+      <button data-ex="dice" class="dice">🎲 Surprise me</button>
+    </div>
+    <textarea id="sql" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+    <div class="err" id="err" hidden></div>
+  </section>
+
+  <section class="panel result-panel">
+    <div class="verdict" id="verdict">
+      <div class="vemoji" id="vemoji">🐘</div>
+      <div class="vtext"><div class="vlabel" id="vlabel">Type some SQL…</div>
+      <div class="vsub" id="vsub">parsed live as you type</div></div>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-tab="tree">🌳 AST tree</button>
+      <button class="tab" data-tab="sql">✨ Formatted</button>
+    </div>
+    <div class="tabbody">
+      <div id="tab-tree" class="tabpane active"></div>
+      <pre id="tab-sql" class="tabpane"></pre>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span>pure Go → WebAssembly · ~930&nbsp;KB one-time · runs offline</span>
+  <a href="https://github.com/zkrebbekx/pgparse" target="_blank" rel="noopener">★ github.com/zkrebbekx/pgparse</a>
+</footer>
+
+<div id="loader" class="loader"><div class="spin">🐘</div><span>loading the parser…</span></div>
+
+<script src="wasm_exec.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

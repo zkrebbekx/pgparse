@@ -149,7 +149,8 @@ r2.Mutates()    // false  (r2.ReadOnly() == true)
 
 `Classify(stmt)` gives the finer category — `ClassReadOnly`, `ClassWrite`
 (INSERT/UPDATE/DELETE, TRUNCATE, MERGE, data-modifying CTEs, `SELECT … INTO`),
-`ClassDDL` (CREATE/ALTER/DROP, GRANT, …), or `ClassUtility` (recognised
+`ClassDDL` (CREATE/ALTER/DROP, GRANT, …), `ClassTransaction`
+(BEGIN/COMMIT/ROLLBACK/SAVEPOINT — non-mutating), or `ClassUtility` (recognised
 admin statements whose effect is not modelled, treated as possibly-writing).
 Data-modifying CTEs (`WITH x AS (UPDATE …) SELECT …`) are detected as writes,
 and `EXPLAIN` is treated as possibly-mutating because `EXPLAIN ANALYZE` executes

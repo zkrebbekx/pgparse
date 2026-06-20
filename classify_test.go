@@ -28,7 +28,9 @@ func TestMutates(t *testing.T) {
 			{"COPY t FROM stdin", true, ClassUtility},
 			{"SET search_path TO public", false, ClassReadOnly},
 			{"SHOW all", false, ClassReadOnly},
-			{"BEGIN", false, ClassReadOnly},
+			{"BEGIN", false, ClassTransaction},
+			{"COMMIT", false, ClassTransaction},
+			{"ROLLBACK", false, ClassTransaction},
 		}
 		Convey("When classified", func() {
 			Convey("Then Mutates and Classify match expectations", func() {
