@@ -123,6 +123,10 @@ func (d *deparser) selectStmt(s *SelectStmt) {
 		}
 	}
 	d.selectItems(s.Columns)
+	if s.Into != nil {
+		d.ws(" INTO ")
+		d.tableName(s.Into)
+	}
 	if len(s.From) > 0 {
 		d.ws(" FROM ")
 		for i, t := range s.From {
@@ -143,6 +147,17 @@ func (d *deparser) selectStmt(s *SelectStmt) {
 	if s.Having != nil {
 		d.ws(" HAVING ")
 		d.expr(s.Having)
+	}
+	if len(s.Window) > 0 {
+		d.ws(" WINDOW ")
+		for i, w := range s.Window {
+			if i > 0 {
+				d.ws(", ")
+			}
+			d.ws(quoteIdent(w.Name))
+			d.ws(" AS ")
+			d.windowSpec(w)
+		}
 	}
 	d.tail(s)
 }
@@ -352,6 +367,11 @@ func (d *deparser) table(t TableExpr) {
 		if x.Alias != "" {
 			d.ws(" AS ")
 			d.ws(quoteIdent(x.Alias))
+			if len(x.ColumnAliases) > 0 {
+				d.ws(" (")
+				d.identList(x.ColumnAliases)
+				d.ws(")")
+			}
 		}
 	case *SubqueryTable:
 		if x.Lateral {
@@ -597,6 +617,10 @@ func (d *deparser) expr(e Expr) {
 		d.ws(" (")
 		d.exprList(x.Args)
 		d.ws(")")
+	case *CollateExpr:
+		d.expr(x.Expr)
+		d.ws(" COLLATE ")
+		d.ws(x.Collation)
 	}
 }
 
@@ -719,13 +743,26 @@ func (d *deparser) specialFunc(f *FuncCall) bool {
 
 func (d *deparser) over(w *WindowDef) {
 	d.ws(" OVER ")
-	if w.Ref != "" {
+	// A bare reference to a named window: OVER w (no partition/order/frame).
+	if w.Ref != "" && len(w.PartitionBy) == 0 && len(w.OrderBy) == 0 && w.Frame == nil {
 		d.ws(quoteIdent(w.Ref))
 		return
 	}
+	d.windowSpec(w)
+}
+
+// windowSpec renders the "(...)" body of a window definition.
+func (d *deparser) windowSpec(w *WindowDef) {
 	d.ws("(")
 	sp := false
+	if w.Ref != "" {
+		d.ws(quoteIdent(w.Ref))
+		sp = true
+	}
 	if len(w.PartitionBy) > 0 {
+		if sp {
+			d.ws(" ")
+		}
 		d.ws("PARTITION BY ")
 		d.exprList(w.PartitionBy)
 		sp = true

@@ -53,6 +53,9 @@ func (l *Lexer) Next() Token {
 		return l.scanNumber(start)
 	case c == '.' && l.pos+1 < len(l.src) && isDigit(l.src[l.pos+1]):
 		return l.scanNumber(start)
+	case isStringPrefix(c) && l.pos+1 < len(l.src) && l.src[l.pos+1] == '\'':
+		// Prefixed string literal: E'...' (escape), B'...' (bit), X'...' (hex).
+		return l.scanPrefixedString(start, c)
 	case isIdentStart(c):
 		return l.scanIdent(start)
 	}
@@ -103,6 +106,31 @@ func (l *Lexer) scanString(start int) Token {
 	l.pos++ // opening quote
 	for l.pos < len(l.src) {
 		c := l.src[l.pos]
+		if c == '\'' {
+			if l.pos+1 < len(l.src) && l.src[l.pos+1] == '\'' {
+				l.pos += 2
+				continue
+			}
+			l.pos++
+			return Token{Type: TokenString, Val: l.src[start:l.pos], Pos: start}
+		}
+		l.pos++
+	}
+	return l.errTok(start, "unterminated string literal")
+}
+
+// scanPrefixedString reads E'...'/B'...'/X'...'. For escape strings (E/e) a
+// backslash escapes the next character, including a quote.
+func (l *Lexer) scanPrefixedString(start int, prefix byte) Token {
+	escape := prefix == 'e' || prefix == 'E'
+	l.pos = start + 1 // at opening quote
+	l.pos++           // consume opening quote
+	for l.pos < len(l.src) {
+		c := l.src[l.pos]
+		if escape && c == '\\' && l.pos+1 < len(l.src) {
+			l.pos += 2
+			continue
+		}
 		if c == '\'' {
 			if l.pos+1 < len(l.src) && l.src[l.pos+1] == '\'' {
 				l.pos += 2
@@ -295,6 +323,16 @@ func isIdentPart(c byte) bool  { return isIdentStart(c) || isDigit(c) || c == '$
 
 // isDollarTagChar reports whether c may appear in a dollar-quote tag (no '$').
 func isDollarTagChar(c byte) bool { return isIdentStart(c) || isDigit(c) }
+
+// isStringPrefix reports whether c introduces a prefixed string literal when
+// immediately followed by a quote: E/e (escape), B/b (bit), X/x (hex).
+func isStringPrefix(c byte) bool {
+	switch c {
+	case 'e', 'E', 'b', 'B', 'x', 'X':
+		return true
+	}
+	return false
+}
 
 func hasUpper(s string) bool {
 	for i := 0; i < len(s); i++ {

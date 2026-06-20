@@ -148,19 +148,7 @@ func (p *Parser) parseIsTail(left Expr) (Expr, error) {
 func (p *Parser) parseArray() (Expr, error) {
 	p.advance() // ARRAY
 	if p.cur().Type == TokenLBracket {
-		p.advance()
-		a := &ArrayExpr{}
-		if p.cur().Type != TokenRBracket {
-			els, err := p.parseExprList()
-			if err != nil {
-				return nil, err
-			}
-			a.Elements = els
-		}
-		if _, err := p.expectType(TokenRBracket, "']' to close ARRAY"); err != nil {
-			return nil, err
-		}
-		return a, nil
+		return p.parseArrayBrackets()
 	}
 	if _, err := p.expectType(TokenLParen, "'[' or '(' after ARRAY"); err != nil {
 		return nil, err
@@ -173,6 +161,35 @@ func (p *Parser) parseArray() (Expr, error) {
 		return nil, err
 	}
 	return &ArrayExpr{Subquery: sub}, nil
+}
+
+// parseArrayBrackets parses a "[...]" array literal whose elements may be nested
+// "[...]" sub-arrays (multidimensional arrays).
+func (p *Parser) parseArrayBrackets() (Expr, error) {
+	p.advance() // [
+	a := &ArrayExpr{}
+	if p.cur().Type != TokenRBracket {
+		for {
+			var el Expr
+			var err error
+			if p.cur().Type == TokenLBracket {
+				el, err = p.parseArrayBrackets()
+			} else {
+				el, err = p.parseExpr()
+			}
+			if err != nil {
+				return nil, err
+			}
+			a.Elements = append(a.Elements, el)
+			if !p.acceptType(TokenComma) {
+				break
+			}
+		}
+	}
+	if _, err := p.expectType(TokenRBracket, "']' to close array"); err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
 func (p *Parser) parseInTail(left Expr, not bool) (Expr, error) {
@@ -363,6 +380,15 @@ func (p *Parser) parsePostfix() (Expr, error) {
 		return nil, err
 	}
 	for {
+		if p.isWord("collate") {
+			p.advance()
+			coll, err := p.parseCollationName()
+			if err != nil {
+				return nil, err
+			}
+			e = &CollateExpr{Expr: e, Collation: coll}
+			continue
+		}
 		switch p.cur().Type {
 		case TokenCast:
 			p.advance()
@@ -380,6 +406,22 @@ func (p *Parser) parsePostfix() (Expr, error) {
 			return e, nil
 		}
 	}
+}
+
+// parseCollationName reads a (possibly schema-qualified, possibly quoted)
+// collation name, returning it as written.
+func (p *Parser) parseCollationName() (string, error) {
+	t := p.cur()
+	if t.Type != TokenIdent {
+		return "", p.errf(t, "expected a collation name")
+	}
+	p.advance()
+	name := t.Val
+	for p.cur().Type == TokenDot {
+		p.advance()
+		name += "." + p.advance().Val
+	}
+	return name, nil
 }
 
 // parseSubscript parses one [i] or [lo:hi] suffix. Either slice bound may be
@@ -630,7 +672,8 @@ func (p *Parser) parseCallTail(parts []string) (Expr, error) {
 		fc.Star = true
 	} else if p.cur().Type != TokenRParen {
 		fc.Distinct = p.acceptKw(kwDistinct)
-		args, err := p.parseExprList()
+		p.acceptWord("variadic")
+		args, err := p.parseVariadicArgs()
 		if err != nil {
 			return nil, err
 		}
@@ -703,6 +746,31 @@ func (p *Parser) parseCallTail(parts []string) (Expr, error) {
 	return fc, nil
 }
 
+// parseVariadicArgs parses a function argument list allowing a VARIADIC marker
+// before any argument and named-argument syntax (name => value).
+func (p *Parser) parseVariadicArgs() ([]Expr, error) {
+	var list []Expr
+	for {
+		p.acceptWord("variadic")
+		e, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if p.cur().Type == TokenOp && p.cur().Val == "=>" {
+			p.advance()
+			e, err = p.parseExpr()
+			if err != nil {
+				return nil, err
+			}
+		}
+		list = append(list, e)
+		if !p.acceptType(TokenComma) {
+			break
+		}
+	}
+	return list, nil
+}
+
 func (p *Parser) parseWindowSpec() (*WindowDef, error) {
 	// OVER window_name — a reference to a named WINDOW definition.
 	if p.cur().Type == TokenIdent {
@@ -712,6 +780,10 @@ func (p *Parser) parseWindowSpec() (*WindowDef, error) {
 		return nil, err
 	}
 	w := &WindowDef{}
+	// Optional base window name: OVER (w ORDER BY ...).
+	if _, isFrame := frameMode(p.cur()); p.cur().Type == TokenIdent && !isFrame {
+		w.Ref = identText(p.advance())
+	}
 	if p.isKw(kwPartition) {
 		p.advance()
 		if !p.acceptKw(kwBy) {
@@ -799,6 +871,9 @@ func (p *Parser) parseFrame(mode string) (*WindowFrame, error) {
 			if identIs(p.cur(), "row") {
 				p.advance()
 			}
+		case identIs(p.cur(), "no"):
+			p.advance()
+			p.acceptWord("others")
 		case identIs(p.cur(), "ties"), identIs(p.cur(), "others"), p.isKw(kwGroup):
 			p.advance()
 		}
@@ -891,6 +966,10 @@ func numberLiteral(raw string) *Literal {
 // unquoteString strips the surrounding quotes from a SQL string literal and
 // collapses doubled quotes. Dollar-quoted bodies are returned verbatim.
 func unquoteString(raw string) string {
+	// Strip a string-literal prefix (E'...', B'...', X'...').
+	if len(raw) >= 2 && isStringPrefix(raw[0]) && raw[1] == '\'' {
+		raw = raw[1:]
+	}
 	if len(raw) >= 2 && raw[0] == '\'' {
 		return strings.ReplaceAll(raw[1:len(raw)-1], "''", "'")
 	}

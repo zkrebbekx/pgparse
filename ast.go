@@ -47,6 +47,9 @@ type SelectStmt struct {
 
 	// Locking holds FOR UPDATE / FOR SHARE clauses.
 	Locking []LockClause
+
+	// Into holds the target of SELECT ... INTO table.
+	Into *TableName
 }
 
 // LockClause is a row-level locking clause: FOR UPDATE/SHARE [OF t,...]
@@ -156,9 +159,10 @@ type TableExpr interface {
 
 // TableName references a (optionally schema-qualified) relation.
 type TableName struct {
-	Schema string
-	Name   string
-	Alias  string
+	Schema        string
+	Name          string
+	Alias         string
+	ColumnAliases []string // t AS x (c1, c2) column-alias list
 }
 
 // SubqueryTable is a parenthesised subquery used in FROM.
@@ -231,10 +235,13 @@ type GroupingExpr struct {
 func (*GroupingExpr) node() {}
 func (*GroupingExpr) expr() {}
 
-// WindowDef is an OVER specification: either a reference to a named window
-// (only Ref set) or an inline definition.
+// WindowDef is an OVER specification: a reference to a named window (only Ref
+// set), an inline definition, or a named definition in a WINDOW clause (Name
+// set). Ref may also hold the base window name of an inline definition that
+// copies an existing window, e.g. OVER (w ORDER BY x).
 type WindowDef struct {
-	Ref         string       // OVER window_name
+	Name        string       // WINDOW name AS (...) definition name
+	Ref         string       // OVER window_name, or base window inside OVER (w ...)
 	PartitionBy []Expr       // PARTITION BY ...
 	OrderBy     []OrderItem  // ORDER BY ...
 	Frame       *WindowFrame // ROWS/RANGE/GROUPS frame, nil when absent
@@ -424,6 +431,15 @@ type RowExpr struct {
 	Elements []Expr
 	Explicit bool // true when written ROW(...)
 }
+
+// CollateExpr is "Expr COLLATE collation".
+type CollateExpr struct {
+	Expr      Expr
+	Collation string // collation name, as written (may be quoted/qualified)
+}
+
+func (*CollateExpr) node() {}
+func (*CollateExpr) expr() {}
 
 func (*ColumnRef) node()      {}
 func (*Star) node()           {}

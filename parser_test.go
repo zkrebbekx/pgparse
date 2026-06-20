@@ -371,6 +371,43 @@ func TestExtendedFeatures(t *testing.T) {
 			So(oc.IndexWhere, ShouldNotBeNil)
 			So(oc.UpdateWhere, ShouldNotBeNil)
 		})
+
+		Convey("When SELECT ... INTO is parsed", func() {
+			s, err := ParseOne("SELECT a, b INTO TEMP newtab FROM src WHERE a > 0")
+			So(err, ShouldBeNil)
+			So(s.(*SelectStmt).Into.Name, ShouldEqual, "newtab")
+		})
+
+		Convey("When a table column-alias list is parsed", func() {
+			s, err := ParseOne("SELECT * FROM t x (c0, c1) WHERE c0 = 1")
+			So(err, ShouldBeNil)
+			tn := s.(*SelectStmt).From[0].(*TableName)
+			So(tn.Alias, ShouldEqual, "x")
+			So(tn.ColumnAliases, ShouldResemble, []string{"c0", "c1"})
+		})
+
+		Convey("When COLLATE and a WINDOW clause are parsed", func() {
+			s, err := ParseOne(`SELECT max(a COLLATE "C") OVER w FROM t WINDOW w AS (ORDER BY b)`)
+			So(err, ShouldBeNil)
+			sel := s.(*SelectStmt)
+			So(len(sel.Window), ShouldEqual, 1)
+			So(sel.Window[0].Name, ShouldEqual, "w")
+		})
+
+		Convey("When an escape string and a multidimensional array are parsed", func() {
+			s, err := ParseOne(`SELECT E'a\'b', ARRAY[[1, 2], [3, 4]]`)
+			So(err, ShouldBeNil)
+			cols := s.(*SelectStmt).Columns
+			So(cols[0].Expr.(*Literal).Kind, ShouldEqual, LitString)
+			So(cols[1].Expr.(*ArrayExpr).Elements[0], ShouldHaveSameTypeAs, &ArrayExpr{})
+		})
+
+		Convey("When WITH appears inside a parenthesised subquery", func() {
+			s, err := ParseOne("SELECT * FROM (WITH c AS (SELECT 1 AS n) SELECT n FROM c) s")
+			So(err, ShouldBeNil)
+			sub := s.(*SelectStmt).From[0].(*SubqueryTable)
+			So(len(sub.Select.With), ShouldEqual, 1)
+		})
 	})
 }
 

@@ -133,6 +133,28 @@ sub-commands, and exact `pg_query` node-tree compatibility.
 The AST is idiomatic typed Go (see [`ast.go`](ast.go)) — ergonomic to walk and
 pattern-match, not a protobuf mirror.
 
+## Read vs. write classification
+
+`Mutates` answers a common question in one call: does this SQL change data or
+schema? It is a conservative guard — useful for read-replica routing or a
+read-only permission gate — returning `true` whenever a statement could write.
+
+```go
+res, _ := pgparse.Parse("UPDATE accounts SET balance = balance - 10 WHERE id = $1")
+res.Mutates()   // true
+
+r2, _ := pgparse.Parse("SELECT * FROM accounts WHERE id = $1")
+r2.Mutates()    // false  (r2.ReadOnly() == true)
+```
+
+`Classify(stmt)` gives the finer category — `ClassReadOnly`, `ClassWrite`
+(INSERT/UPDATE/DELETE, TRUNCATE, MERGE, data-modifying CTEs, `SELECT … INTO`),
+`ClassDDL` (CREATE/ALTER/DROP, GRANT, …), or `ClassUtility` (recognised
+admin statements whose effect is not modelled, treated as possibly-writing).
+Data-modifying CTEs (`WITH x AS (UPDATE …) SELECT …`) are detected as writes,
+and `EXPLAIN` is treated as possibly-mutating because `EXPLAIN ANALYZE` executes
+its argument.
+
 ## Deparse (AST → SQL)
 
 `Deparse` renders any AST node back to SQL. It is deterministic and idempotent
@@ -188,18 +210,20 @@ genuinely-valid statements each pure-Go parser also accepts:
 
 | | statements | accepted |
 |---|--:|--:|
-| **pgparse** | 7,985 | **92.2%** |
+| **pgparse** | 7,985 | **97.8%** |
 | GoSQLX | 7,985 | 48.4% |
 
-pgparse accepts **92.2%** of the real PostgreSQL statements `pg_query_go`
+pgparse accepts **97.8%** of the real PostgreSQL statements `pg_query_go`
 accepts, far ahead of GoSQLX. Of those, DML, queries, and core DDL are parsed
 into a full typed AST; utility and administrative statements (`SET`, `COPY`,
 `GRANT`, `ANALYZE`, `CREATE TYPE`/`SEQUENCE`/`FUNCTION`, `DROP ROLE`, …) and the
 DDL options pgparse does not model (partitioning, storage parameters, …) are
 recognised as a [`RawStmt`](ddl_ast.go): the leading keyword plus the verbatim,
 delimiter-validated statement text. So "accepted" means *recognised and
-lexically validated*, with full structure for the DML/DDL core. For an
-exhaustive node tree of every statement, use `pg_query_go`.
+lexically validated*, with full structure for the DML/DDL core. The remaining
+~2% are deep edge cases (subqueries nested inside aggregate `ORDER BY`, array
+slices as `INSERT` targets, …). For an exhaustive node tree of every statement,
+use `pg_query_go`.
 
 ### vs `pg_query_go`, in one place
 
@@ -209,7 +233,7 @@ statements both engines accept:
 
 | | pgparse | pg_query_go |
 |---|--:|--:|
-| statements accepted (valid PG) | 92% | 100% |
+| statements accepted (valid PG) | 98% | 100% |
 | latency / statement | **~2.8 µs** | ~50 µs |
 | speedup | **~18×** | 1× |
 | memory / statement | ~2.2 KB | ~2.9 KB |

@@ -51,6 +51,11 @@ func TestRoundTrip(t *testing.T) {
 			"SELECT x[1] FROM t WHERE a -> 'k' @> b",
 			"INSERT INTO t (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET a = 2 WHERE t.a < 5",
 			"UPDATE t SET tags[1] = 'x', (a, b) = (1, 2) WHERE id = $1",
+			"SELECT a, b INTO TEMP newtab FROM src WHERE a > 0",
+			"SELECT * FROM t AS x (c0, c1), generate_series(1, 3) g WHERE c0 = 1",
+			`SELECT max(a) OVER w, sum(b) FROM t WINDOW w AS (PARTITION BY c ORDER BY d)`,
+			"SELECT * FROM (WITH c AS (SELECT 1 AS n) SELECT n FROM c) s",
+			"SELECT a, sum(b) FROM t GROUP BY CUBE (a) ORDER BY a USING <",
 		}
 
 		Convey("When parsed, deparsed, and re-parsed", func() {

@@ -109,9 +109,9 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		}
 	}
 	switch {
-	case p.isKw(kwSelect), p.isKw(kwValues), p.cur().Type == TokenLParen:
-		// A statement may be a SELECT, a bare VALUES list, or a parenthesised
-		// set-operation select, e.g. "(SELECT 1 UNION SELECT 2) INTERSECT SELECT 3".
+	case p.isKw(kwSelect), p.isKw(kwValues), p.isWord("table"), p.cur().Type == TokenLParen:
+		// A statement may be a SELECT, a bare VALUES list, the "TABLE name"
+		// shorthand, or a parenthesised set-operation select.
 		s, err := p.parseSelect()
 		if err != nil {
 			return nil, err
@@ -127,9 +127,9 @@ func (p *Parser) parseStatement() (Stmt, error) {
 	case p.isKw(kwCreate):
 		return p.parseCreate()
 	case p.isKw(kwAlter):
-		return p.parseAlter()
+		return p.ddlOrRaw(p.parseAlter)
 	case p.isKw(kwDrop):
-		return p.parseDrop()
+		return p.ddlOrRaw(p.parseDrop)
 	}
 	if isUtilityStart(p.cur()) {
 		return p.parseRawStmt()
@@ -187,6 +187,12 @@ func (p *Parser) parseWith() ([]*CTE, error) {
 		if !p.acceptKw(kwAs) {
 			return nil, p.errf(p.cur(), "expected AS in WITH")
 		}
+		// Optional [NOT] MATERIALIZED hint.
+		if !p.acceptWord("materialized") && p.acceptKw(kwNot) {
+			if err := p.expectWord("materialized"); err != nil {
+				return nil, err
+			}
+		}
 		if _, err := p.expectType(TokenLParen, "'(' before CTE body"); err != nil {
 			return nil, err
 		}
@@ -198,12 +204,80 @@ func (p *Parser) parseWith() ([]*CTE, error) {
 		if _, err := p.expectType(TokenRParen, "')' after CTE body"); err != nil {
 			return nil, err
 		}
+		// Optional SEARCH / CYCLE clauses on a recursive CTE — recognised and
+		// consumed (not modelled).
+		if err := p.parseSearchCycle(); err != nil {
+			return nil, err
+		}
 		ctes = append(ctes, cte)
 		if !p.acceptType(TokenComma) {
 			break
 		}
 	}
 	return ctes, nil
+}
+
+// parseSearchCycle consumes the optional SEARCH and CYCLE clauses of a recursive
+// CTE. They are recognised but not modelled.
+func (p *Parser) parseSearchCycle() error {
+	identList := func() error {
+		for {
+			if _, err := p.parseIdent("column name"); err != nil {
+				return err
+			}
+			if !p.acceptType(TokenComma) {
+				return nil
+			}
+		}
+	}
+	if p.acceptWord("search") {
+		if !p.acceptWord("depth") {
+			p.acceptWord("breadth")
+		}
+		if err := p.expectWord("first"); err != nil {
+			return err
+		}
+		if err := p.expectWord("by"); err != nil {
+			return err
+		}
+		if err := identList(); err != nil {
+			return err
+		}
+		if !p.acceptKw(kwSet) {
+			return p.errf(p.cur(), "expected SET in SEARCH clause")
+		}
+		if _, err := p.parseIdent("sequence column"); err != nil {
+			return err
+		}
+	}
+	if p.acceptWord("cycle") {
+		if err := identList(); err != nil {
+			return err
+		}
+		if !p.acceptKw(kwSet) {
+			return p.errf(p.cur(), "expected SET in CYCLE clause")
+		}
+		if _, err := p.parseIdent("cycle mark column"); err != nil {
+			return err
+		}
+		// Optional TO value DEFAULT value.
+		if p.acceptWord("to") {
+			if _, err := p.parseExpr(); err != nil {
+				return err
+			}
+			if p.acceptKw(kwDefault) {
+				if _, err := p.parseExpr(); err != nil {
+					return err
+				}
+			}
+		}
+		if p.acceptWord("using") {
+			if _, err := p.parseIdent("path column"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // isColumnListAhead reports whether "( ident [, ident]* )" starts here, used to
@@ -223,9 +297,22 @@ func (p *Parser) isColumnListAhead() bool {
 // precedence (INTERSECT binds tighter than UNION/EXCEPT) followed by a single
 // trailing ORDER BY / LIMIT / OFFSET that applies to the whole expression.
 func (p *Parser) parseSelect() (*SelectStmt, error) {
+	// A WITH clause may lead a select expression anywhere it appears (subqueries,
+	// set-op operands, LATERAL items), not only at statement top level.
+	var with []*CTE
+	if p.isKw(kwWith) {
+		var err error
+		with, err = p.parseWith()
+		if err != nil {
+			return nil, err
+		}
+	}
 	node, err := p.parseUnionExpr()
 	if err != nil {
 		return nil, err
+	}
+	if with != nil {
+		node.With = with
 	}
 	// The tail binds to the entire (possibly set-op) expression, not to the
 	// last operand, matching PostgreSQL.
@@ -309,6 +396,18 @@ func (p *Parser) parseSelectPrimary() (*SelectStmt, error) {
 		}
 		return &SelectStmt{Values: rows}, nil
 	}
+	// "TABLE name" is shorthand for "SELECT * FROM name".
+	if p.isWord("table") {
+		p.advance()
+		name, err := p.parseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		return &SelectStmt{
+			Columns: []SelectItem{{Star: true}},
+			From:    []TableExpr{name},
+		}, nil
+	}
 	return p.parseSelectBody()
 }
 
@@ -344,6 +443,18 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 	}
 	s.Columns = cols
 
+	// SELECT ... INTO [TEMP|UNLOGGED] [TABLE] name.
+	if p.acceptKw(kwInto) {
+		p.acceptWord("temporary")
+		p.acceptWord("temp")
+		p.acceptWord("unlogged")
+		p.acceptWord("table")
+		s.Into, err = p.parseObjectName()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if p.acceptKw(kwFrom) {
 		from, err := p.parseFromList()
 		if err != nil {
@@ -373,6 +484,28 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 		s.Having, err = p.parseExpr()
 		if err != nil {
 			return nil, err
+		}
+	}
+	// WINDOW name AS (spec) [, ...].
+	if p.isWord("window") {
+		p.advance()
+		for {
+			name, err := p.parseIdent("window name")
+			if err != nil {
+				return nil, err
+			}
+			if !p.acceptKw(kwAs) {
+				return nil, p.errf(p.cur(), "expected AS in WINDOW clause")
+			}
+			wd, err := p.parseWindowSpec()
+			if err != nil {
+				return nil, err
+			}
+			wd.Name = name
+			s.Window = append(s.Window, wd)
+			if !p.acceptType(TokenComma) {
+				break
+			}
 		}
 	}
 	return s, nil
@@ -792,8 +925,25 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 		return nil, err
 	} else if ok {
 		tn.Alias = alias
+		if p.isColumnListAhead() {
+			tn.ColumnAliases, err = p.parseNameList()
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	return tn, nil
+}
+
+// nonAliasWords are non-reserved identifiers that introduce a following clause
+// and therefore must not be swallowed as a table alias.
+var nonAliasWords = map[string]bool{
+	"for": true, "natural": true, "fetch": true, "tablesample": true,
+	"window": true,
+}
+
+func nonAliasWord(t Token) bool {
+	return t.Type == TokenIdent && nonAliasWords[strings.ToLower(t.Val)]
 }
 
 // parseTableAlias parses [AS] alias for a table, refusing clause keywords.
@@ -802,7 +952,7 @@ func (p *Parser) parseTableAlias() (string, bool, error) {
 		name, err := p.parseIdent("table alias")
 		return name, err == nil, err
 	}
-	if p.cur().Type == TokenIdent {
+	if p.cur().Type == TokenIdent && !nonAliasWord(p.cur()) {
 		return identText(p.advance()), true, nil
 	}
 	return "", false, nil

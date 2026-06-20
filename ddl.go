@@ -122,11 +122,19 @@ func (p *Parser) parseCreate() (Stmt, error) {
 func (p *Parser) ddlOrRaw(parse func() (Stmt, error)) (Stmt, error) {
 	start := p.stmtStart
 	stmt, err := parse()
-	if err != nil {
+	// Fall back when the structured parse failed, or succeeded but left trailing
+	// tokens before the statement boundary (an unmodelled tail such as INHERITS,
+	// WITH (...) storage options, TABLESPACE, or PARTITION BY).
+	if err != nil || !p.atStmtEnd() {
 		p.pos = start
 		return p.parseRawStmt()
 	}
 	return stmt, nil
+}
+
+// atStmtEnd reports whether the parser is at a statement boundary.
+func (p *Parser) atStmtEnd() bool {
+	return p.atEOF() || p.cur().Type == TokenSemicolon
 }
 
 func (p *Parser) parseCreateTable(temp bool) (Stmt, error) {
