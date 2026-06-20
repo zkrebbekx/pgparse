@@ -77,23 +77,34 @@ toks, _ := pgparse.Tokenize("SELECT 1 + 2")
 
 - `SELECT` — projection with aliases, `DISTINCT` / `DISTINCT ON`, `FROM` with
   comma and explicit joins (`INNER`, `LEFT`, `RIGHT`, `FULL`, `CROSS`, `OUTER`,
-  `ON` / `USING`), `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY` (`ASC`/`DESC`,
-  `NULLS FIRST`/`LAST`), `LIMIT`, `OFFSET`
+  `ON` / `USING`, `LATERAL` subqueries), `WHERE`, `GROUP BY`, `HAVING`,
+  `ORDER BY` (`ASC`/`DESC`, `NULLS FIRST`/`LAST`), `LIMIT`, `OFFSET`
 - `WITH` CTEs (incl. `RECURSIVE`) and subqueries in `FROM` / expressions
-- Set operations: `UNION` / `INTERSECT` / `EXCEPT` (`ALL`)
-- Window functions: `func(...) OVER (PARTITION BY ... ORDER BY ...)`
+- Set operations: `UNION` / `INTERSECT` / `EXCEPT` (`ALL`), with correct
+  precedence (`INTERSECT` binds tighter) and a tail that binds to the whole
+  expression
+- Window functions: `OVER (PARTITION BY ... ORDER BY ...)`, frame clauses
+  (`ROWS`/`RANGE`/`GROUPS ... BETWEEN ... AND ...`, `EXCLUDE`), named windows
+  (`OVER w`), `FILTER (WHERE ...)`, `WITHIN GROUP (ORDER BY ...)`, and aggregate
+  `ORDER BY` (`array_agg(x ORDER BY y)`)
 - `INSERT` — column lists, multi-row `VALUES`, `INSERT ... SELECT`,
   `ON CONFLICT (...) DO NOTHING | DO UPDATE SET ...`, `RETURNING`
-- `UPDATE` — `SET`, `FROM`, `WHERE`, `RETURNING`
+- `UPDATE` — single and multi-column `SET (a, b) = (v1, v2)` / `= (SELECT ...)`,
+  `FROM`, `WHERE`, `RETURNING`
 - `DELETE` — `USING`, `WHERE`, `RETURNING`
 
 **Expressions**
 
 - Logical (`AND` / `OR` / `NOT`), comparison, arithmetic, `||` concatenation
   — all with correct precedence and associativity
-- `CASE` (simple + searched), `CAST(x AS t)` and `x::t`, `INTERVAL '...'`
+- JSON/array operators (`->` `->>` `#>` `#>>` `@>` `<@` `?` `?|` `?&`), bitwise
+  (`&` `|` `#` `<<` `>>` `~`), and regex match (`~` `~*` `!~` `!~*`); array
+  subscript and slice (`a[1]`, `a[1:3]`, `a[:2]`)
+- `CASE` (simple + searched), `CAST(x AS t)` and `x::t`, typed literals
+  (`date '...'`), `INTERVAL '90' day`
 - `IN (list | subquery)`, `BETWEEN`, `LIKE` / `ILIKE`, `IS [NOT] NULL/TRUE/FALSE`
-- `EXISTS (...)`, scalar subqueries, function calls (`DISTINCT`, `count(*)`)
+- `EXISTS (...)`, scalar subqueries, function calls (`DISTINCT`, `count(*)`),
+  SQL special functions (`extract`, `substring`, `position`, `trim`, `overlay`)
 - Literals (string with `''` escapes, dollar-quoted, int/float, bool, NULL),
   positional parameters `$n`, qualified names `schema.table.column`, `table.*`
 
@@ -103,6 +114,49 @@ toks, _ := pgparse.Tokenize("SELECT 1 + 2")
 
 The AST is idiomatic typed Go (see [`ast.go`](ast.go)) — ergonomic to walk and
 pattern-match, not a protobuf mirror.
+
+## Deparse (AST → SQL)
+
+`Deparse` renders any AST node back to SQL. It is deterministic and idempotent
+(`deparse∘parse∘deparse == deparse∘parse`), which makes it both a formatting
+utility and a round-trip test oracle — every query in the test corpus is
+verified to survive parse → print → re-parse unchanged.
+
+```go
+stmt, _ := pgparse.ParseOne("select a,b from t where a>1")
+fmt.Println(pgparse.Deparse(stmt))
+// SELECT a, b FROM t WHERE a > 1
+```
+
+## Robustness
+
+`Parse` never panics: any internal panic is recovered and returned as an error,
+and a Go [fuzz target](fuzz_test.go) (`FuzzParse`) drives the unguarded parser
+to prove it. Millions of executions over arbitrary and malformed input produce
+errors, never crashes or hangs.
+
+```bash
+go test -fuzz=FuzzParse -fuzztime=30s
+```
+
+## Completeness vs other Go parsers
+
+A feature-by-feature acceptance matrix (in [`comparison/`](comparison)) over 23
+representative constructs, parsed by each engine. `pg_query_go` (the real
+PostgreSQL parser) is the fidelity baseline; pgparse and
+[GoSQLX](https://github.com/ajitpratap0/GoSQLX) are the pure-Go contenders:
+
+| | pgparse | pg_query_go | GoSQLX |
+|---|:--:|:--:|:--:|
+| **features accepted** | **22 / 23** | 23 / 23 | 20 / 23 |
+| multi-column `UPDATE SET (a,b)=(…)` | ✓ | ✓ | ✗ |
+| `extract` / `substring` keyword syntax | ✓ | ✓ | ✗ |
+| typed literal + `INTERVAL '90' day` | ✓ | ✓ | ✗ |
+| `LATERAL` join | ✓ | ✓ | ✓ |
+| DDL `CREATE TABLE` | ✗ | ✓ | ✓ |
+
+pgparse's only miss against the baseline is DDL (out of scope). It parses the
+multi-column `UPDATE` form GoSQLX rejects. Reproduce with `make compare`.
 
 ## Performance
 

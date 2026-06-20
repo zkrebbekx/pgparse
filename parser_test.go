@@ -227,6 +227,59 @@ func TestPostgresConstructs(t *testing.T) {
 				So(len(fc.Args), ShouldEqual, 3)
 			})
 		})
+
+		Convey("When JSON/array operators are parsed", func() {
+			s, err := ParseOne("SELECT a -> 'k' ->> 'm' FROM t WHERE meta @> '{}' AND tags ?| arr")
+			Convey("Then they bind as left-assoc binary operators above comparison", func() {
+				So(err, ShouldBeNil)
+				and := s.(*SelectStmt).Where.(*BinaryExpr)
+				So(and.Op, ShouldEqual, "AND")
+				So(and.Left.(*BinaryExpr).Op, ShouldEqual, "@>")
+				So(and.Right.(*BinaryExpr).Op, ShouldEqual, "?|")
+			})
+		})
+
+		Convey("When an array subscript and slice are parsed", func() {
+			s, err := ParseOne("SELECT x[1], y[1:3] FROM t")
+			Convey("Then index and slice nodes are produced", func() {
+				So(err, ShouldBeNil)
+				cols := s.(*SelectStmt).Columns
+				So(cols[0].Expr.(*SubscriptExpr).Slice, ShouldBeFalse)
+				So(cols[1].Expr.(*SubscriptExpr).Slice, ShouldBeTrue)
+			})
+		})
+
+		Convey("When a multi-column UPDATE assignment is parsed", func() {
+			s, err := ParseOne("UPDATE users SET (name, email) = ($1, $2) WHERE id = $3")
+			Convey("Then the column list and value list align", func() {
+				So(err, ShouldBeNil)
+				a := s.(*UpdateStmt).Set[0]
+				So(a.Columns, ShouldResemble, []string{"name", "email"})
+				So(len(a.Values), ShouldEqual, 2)
+			})
+		})
+
+		Convey("When a window frame with FILTER is parsed", func() {
+			s, err := ParseOne("SELECT sum(x) FILTER (WHERE x > 0) OVER (ORDER BY t ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) FROM s")
+			Convey("Then filter, frame, and bounds are captured", func() {
+				So(err, ShouldBeNil)
+				fc := s.(*SelectStmt).Columns[0].Expr.(*FuncCall)
+				So(fc.Filter, ShouldNotBeNil)
+				So(fc.Over.Frame.Mode, ShouldEqual, "ROWS")
+				So(fc.Over.Frame.Start.Kind, ShouldEqual, FramePreceding)
+				So(fc.Over.Frame.End.Kind, ShouldEqual, FrameCurrentRow)
+			})
+		})
+
+		Convey("When an aggregate ORDER BY is parsed", func() {
+			s, err := ParseOne("SELECT string_agg(name, ',' ORDER BY name DESC) FROM t")
+			Convey("Then the aggregate carries its own ORDER BY", func() {
+				So(err, ShouldBeNil)
+				fc := s.(*SelectStmt).Columns[0].Expr.(*FuncCall)
+				So(len(fc.OrderBy), ShouldEqual, 1)
+				So(fc.OrderBy[0].Desc, ShouldBeTrue)
+			})
+		})
 	})
 }
 

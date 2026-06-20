@@ -40,6 +40,7 @@ const (
 	TokenConcat  // ||
 	TokenCast    // ::
 	TokenColon   // :
+	TokenOp      // general operator: -> ->> #> @> <@ & | # << >> ~ ~* !~ ? ?| ?& @@
 )
 
 // Token is a single lexical unit. Val aliases the source string (no copy), so a

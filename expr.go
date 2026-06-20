@@ -58,14 +58,14 @@ var compOps = map[TokenType]string{
 }
 
 func (p *Parser) parseComparison() (Expr, error) {
-	left, err := p.parseAdditive()
+	left, err := p.parseOtherOp()
 	if err != nil {
 		return nil, err
 	}
 	for {
 		if op, ok := compOps[p.cur().Type]; ok {
 			p.advance()
-			right, err := p.parseAdditive()
+			right, err := p.parseOtherOp()
 			if err != nil {
 				return nil, err
 			}
@@ -155,14 +155,14 @@ func (p *Parser) parseInTail(left Expr, not bool) (Expr, error) {
 
 func (p *Parser) parseBetweenTail(left Expr, not bool) (Expr, error) {
 	p.advance() // BETWEEN
-	low, err := p.parseAdditive()
+	low, err := p.parseOtherOp()
 	if err != nil {
 		return nil, err
 	}
 	if !p.acceptKw(kwAnd) {
 		return nil, p.errf(p.cur(), "expected AND in BETWEEN")
 	}
-	high, err := p.parseAdditive()
+	high, err := p.parseOtherOp()
 	if err != nil {
 		return nil, err
 	}
@@ -170,11 +170,30 @@ func (p *Parser) parseBetweenTail(left Expr, not bool) (Expr, error) {
 }
 
 func (p *Parser) parseLikeTail(left Expr, not, ilike bool) (Expr, error) {
-	pat, err := p.parseAdditive()
+	pat, err := p.parseOtherOp()
 	if err != nil {
 		return nil, err
 	}
 	return &LikeExpr{Expr: left, Pattern: pat, Not: not, ILike: ilike}, nil
+}
+
+// parseOtherOp handles PostgreSQL's open operator class (JSON/array/bitwise/
+// regex operators plus ||), which binds tighter than comparison but looser than
+// arithmetic. All such operators are left-associative.
+func (p *Parser) parseOtherOp() (Expr, error) {
+	left, err := p.parseAdditive()
+	if err != nil {
+		return nil, err
+	}
+	for p.cur().Type == TokenOp || p.cur().Type == TokenConcat {
+		op := p.advance().Val
+		right, err := p.parseAdditive()
+		if err != nil {
+			return nil, err
+		}
+		left = &BinaryExpr{Op: op, Left: left, Right: right}
+	}
+	return left, nil
 }
 
 func (p *Parser) parseAdditive() (Expr, error) {
@@ -189,8 +208,6 @@ func (p *Parser) parseAdditive() (Expr, error) {
 			op = "+"
 		case TokenMinus:
 			op = "-"
-		case TokenConcat:
-			op = "||"
 		default:
 			return left, nil
 		}
@@ -232,36 +249,83 @@ func (p *Parser) parseMultiplicative() (Expr, error) {
 }
 
 func (p *Parser) parseUnary() (Expr, error) {
-	switch p.cur().Type {
-	case TokenMinus:
+	switch {
+	case p.cur().Type == TokenMinus:
 		p.advance()
 		operand, err := p.parseUnary()
 		if err != nil {
 			return nil, err
 		}
 		return &UnaryExpr{Op: "-", Operand: operand}, nil
-	case TokenPlus:
+	case p.cur().Type == TokenPlus:
 		p.advance()
 		return p.parseUnary()
+	case p.cur().Type == TokenOp && p.cur().Val == "~":
+		// Prefix bitwise NOT (the same token is the infix regex-match operator,
+		// disambiguated by position).
+		p.advance()
+		operand, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return &UnaryExpr{Op: "~", Operand: operand}, nil
 	}
 	return p.parsePostfix()
 }
 
-// parsePostfix handles trailing :: casts (left-associative, highest binding).
+// parsePostfix handles trailing :: casts and array subscripts a[i] / a[lo:hi]
+// (both left-associative, highest binding).
 func (p *Parser) parsePostfix() (Expr, error) {
 	e, err := p.parsePrimary()
 	if err != nil {
 		return nil, err
 	}
-	for p.cur().Type == TokenCast {
-		p.advance()
-		typ, err := p.parseTypeName()
+	for {
+		switch p.cur().Type {
+		case TokenCast:
+			p.advance()
+			typ, err := p.parseTypeName()
+			if err != nil {
+				return nil, err
+			}
+			e = &CastExpr{Expr: e, Type: typ}
+		case TokenLBracket:
+			e, err = p.parseSubscript(e)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return e, nil
+		}
+	}
+}
+
+// parseSubscript parses one [i] or [lo:hi] suffix. Either slice bound may be
+// omitted (a[:hi], a[lo:]).
+func (p *Parser) parseSubscript(base Expr) (Expr, error) {
+	p.advance() // [
+	sub := &SubscriptExpr{Base: base}
+	if p.cur().Type != TokenColon && p.cur().Type != TokenRBracket {
+		lo, err := p.parseExpr()
 		if err != nil {
 			return nil, err
 		}
-		e = &CastExpr{Expr: e, Type: typ}
+		sub.Lower = lo
 	}
-	return e, nil
+	if p.acceptType(TokenColon) {
+		sub.Slice = true
+		if p.cur().Type != TokenRBracket {
+			hi, err := p.parseExpr()
+			if err != nil {
+				return nil, err
+			}
+			sub.Upper = hi
+		}
+	}
+	if _, err := p.expectType(TokenRBracket, "']' to close subscript"); err != nil {
+		return nil, err
+	}
+	return sub, nil
 }
 
 func (p *Parser) parsePrimary() (Expr, error) {
@@ -472,9 +536,63 @@ func (p *Parser) parseCallTail(parts []string) (Expr, error) {
 			return nil, err
 		}
 		fc.Args = args
+		// Aggregate ORDER BY: array_agg(x ORDER BY y DESC).
+		if p.isKw(kwOrder) {
+			p.advance()
+			if !p.acceptKw(kwBy) {
+				return nil, p.errf(p.cur(), "expected BY after ORDER")
+			}
+			fc.OrderBy, err = p.parseOrderList()
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	if _, err := p.expectType(TokenRParen, "')' after function arguments"); err != nil {
 		return nil, err
+	}
+	// WITHIN GROUP (ORDER BY ...) for ordered-set aggregates.
+	if identIs(p.cur(), "within") {
+		p.advance()
+		if !p.acceptKw(kwGroup) {
+			return nil, p.errf(p.cur(), "expected GROUP after WITHIN")
+		}
+		if _, err := p.expectType(TokenLParen, "'(' after WITHIN GROUP"); err != nil {
+			return nil, err
+		}
+		if !(p.isKw(kwOrder)) {
+			return nil, p.errf(p.cur(), "expected ORDER BY in WITHIN GROUP")
+		}
+		p.advance()
+		if !p.acceptKw(kwBy) {
+			return nil, p.errf(p.cur(), "expected BY after ORDER")
+		}
+		og, err := p.parseOrderList()
+		if err != nil {
+			return nil, err
+		}
+		fc.WithinGroup = og
+		if _, err := p.expectType(TokenRParen, "')' to close WITHIN GROUP"); err != nil {
+			return nil, err
+		}
+	}
+	// FILTER (WHERE predicate).
+	if identIs(p.cur(), "filter") {
+		p.advance()
+		if _, err := p.expectType(TokenLParen, "'(' after FILTER"); err != nil {
+			return nil, err
+		}
+		if !p.acceptKw(kwWhere) {
+			return nil, p.errf(p.cur(), "expected WHERE in FILTER")
+		}
+		pred, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		fc.Filter = pred
+		if _, err := p.expectType(TokenRParen, "')' to close FILTER"); err != nil {
+			return nil, err
+		}
 	}
 	if p.acceptKw(kwOver) {
 		w, err := p.parseWindowSpec()
@@ -487,7 +605,11 @@ func (p *Parser) parseCallTail(parts []string) (Expr, error) {
 }
 
 func (p *Parser) parseWindowSpec() (*WindowDef, error) {
-	if _, err := p.expectType(TokenLParen, "'(' after OVER"); err != nil {
+	// OVER window_name — a reference to a named WINDOW definition.
+	if p.cur().Type == TokenIdent {
+		return &WindowDef{Ref: identText(p.advance())}, nil
+	}
+	if _, err := p.expectType(TokenLParen, "'(' or window name after OVER"); err != nil {
 		return nil, err
 	}
 	w := &WindowDef{}
@@ -513,10 +635,115 @@ func (p *Parser) parseWindowSpec() (*WindowDef, error) {
 		}
 		w.OrderBy = ord
 	}
+	// Optional frame clause: ROWS|RANGE|GROUPS ...
+	if mode, ok := frameMode(p.cur()); ok {
+		p.advance()
+		frame, err := p.parseFrame(mode)
+		if err != nil {
+			return nil, err
+		}
+		w.Frame = frame
+	}
 	if _, err := p.expectType(TokenRParen, "')' to close OVER"); err != nil {
 		return nil, err
 	}
 	return w, nil
+}
+
+// frameMode reports whether t introduces a frame clause (ROWS/RANGE/GROUPS),
+// which are non-reserved words matched by text.
+func frameMode(t Token) (string, bool) {
+	if t.Type != TokenIdent {
+		return "", false
+	}
+	switch strings.ToLower(t.Val) {
+	case "rows":
+		return "ROWS", true
+	case "range":
+		return "RANGE", true
+	case "groups":
+		return "GROUPS", true
+	}
+	return "", false
+}
+
+// parseFrame parses the body of a frame clause after the mode word, supporting
+// both the single-bound form and BETWEEN start AND end.
+func (p *Parser) parseFrame(mode string) (*WindowFrame, error) {
+	f := &WindowFrame{Mode: mode}
+	if p.acceptKw(kwBetween) {
+		start, err := p.parseFrameBound()
+		if err != nil {
+			return nil, err
+		}
+		if !p.acceptKw(kwAnd) {
+			return nil, p.errf(p.cur(), "expected AND in frame BETWEEN")
+		}
+		end, err := p.parseFrameBound()
+		if err != nil {
+			return nil, err
+		}
+		f.Start, f.End = start, &end
+	} else {
+		start, err := p.parseFrameBound()
+		if err != nil {
+			return nil, err
+		}
+		f.Start = start
+	}
+	// Optional EXCLUDE clause — consume and ignore the variants we don't model.
+	if identIs(p.cur(), "exclude") {
+		p.advance()
+		switch {
+		case identIs(p.cur(), "current"):
+			p.advance()
+			if identIs(p.cur(), "row") {
+				p.advance()
+			}
+		case identIs(p.cur(), "ties"), identIs(p.cur(), "others"), p.isKw(kwGroup):
+			p.advance()
+		}
+	}
+	return f, nil
+}
+
+// parseFrameBound parses one frame endpoint: UNBOUNDED PRECEDING/FOLLOWING,
+// CURRENT ROW, or "N PRECEDING/FOLLOWING".
+func (p *Parser) parseFrameBound() (FrameBound, error) {
+	if identIs(p.cur(), "unbounded") {
+		p.advance()
+		if identIs(p.cur(), "preceding") {
+			p.advance()
+			return FrameBound{Kind: FrameUnboundedPreceding}, nil
+		}
+		if identIs(p.cur(), "following") {
+			p.advance()
+			return FrameBound{Kind: FrameUnboundedFollowing}, nil
+		}
+		return FrameBound{}, p.errf(p.cur(), "expected PRECEDING or FOLLOWING after UNBOUNDED")
+	}
+	if identIs(p.cur(), "current") {
+		p.advance()
+		if !identIs(p.cur(), "row") {
+			return FrameBound{}, p.errf(p.cur(), "expected ROW after CURRENT")
+		}
+		p.advance()
+		return FrameBound{Kind: FrameCurrentRow}, nil
+	}
+	// N PRECEDING / N FOLLOWING
+	off, err := p.parseAdditive()
+	if err != nil {
+		return FrameBound{}, err
+	}
+	if identIs(p.cur(), "preceding") {
+		p.advance()
+		return FrameBound{Kind: FramePreceding, Offset: off}, nil
+	}
+	if identIs(p.cur(), "following") {
+		p.advance()
+		return FrameBound{Kind: FrameFollowing, Offset: off}, nil
+	}
+	return FrameBound{}, p.errf(p.cur(), "expected PRECEDING or FOLLOWING in frame bound")
 }
 
 // parseTypeName parses a single-token type name plus optional precision and

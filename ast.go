@@ -95,10 +95,15 @@ type UpdateStmt struct {
 	Returning []SelectItem
 }
 
-// Assignment is a single col = expr in SET.
+// Assignment is one SET target. The common form is a single column = value
+// (Column / Value). PostgreSQL also allows a multi-column form,
+// SET (a, b) = (v1, v2) or SET (a, b) = (SELECT ...), captured by Columns plus
+// either Values (the parenthesised expression list) or Value (a row subquery).
 type Assignment struct {
-	Column string
-	Value  Expr
+	Column  string   // single-column target ("" when multi-column)
+	Value   Expr     // single value, or a row subquery for the multi-column form
+	Columns []string // multi-column targets (nil for the single form)
+	Values  []Expr   // multi-column values aligned with Columns
 }
 
 // DeleteStmt is DELETE FROM ... .
@@ -141,6 +146,7 @@ type SubqueryTable struct {
 	Select  *SelectStmt
 	Alias   string
 	Columns []string
+	Lateral bool // LATERAL (...)
 }
 
 // JoinExpr joins two table expressions.
@@ -182,12 +188,38 @@ type OrderItem struct {
 	NullsSet   bool // whether NULLS FIRST/LAST was explicit
 }
 
-// WindowDef is an OVER (...) specification.
+// WindowDef is an OVER specification: either a reference to a named window
+// (only Ref set) or an inline definition.
 type WindowDef struct {
-	Name        string // for named WINDOW clauses
-	PartitionBy []Expr
-	OrderBy     []OrderItem
+	Ref         string       // OVER window_name
+	PartitionBy []Expr       // PARTITION BY ...
+	OrderBy     []OrderItem  // ORDER BY ...
+	Frame       *WindowFrame // ROWS/RANGE/GROUPS frame, nil when absent
 }
+
+// WindowFrame is a frame clause: ROWS|RANGE|GROUPS Start [BETWEEN Start AND End].
+type WindowFrame struct {
+	Mode  string      // "ROWS", "RANGE", or "GROUPS"
+	Start FrameBound  // frame start (or the sole bound when End is nil)
+	End   *FrameBound // frame end when BETWEEN ... AND ... is used
+}
+
+// FrameBound is one frame endpoint.
+type FrameBound struct {
+	Kind   FrameBoundKind
+	Offset Expr // for N PRECEDING / N FOLLOWING
+}
+
+// FrameBoundKind enumerates frame endpoint kinds.
+type FrameBoundKind uint8
+
+const (
+	FrameUnboundedPreceding FrameBoundKind = iota
+	FramePreceding
+	FrameCurrentRow
+	FrameFollowing
+	FrameUnboundedFollowing
+)
 
 func (*WindowDef) node() {}
 
@@ -236,14 +268,18 @@ type UnaryExpr struct {
 	Operand Expr
 }
 
-// FuncCall is a function invocation, possibly with DISTINCT, *, or OVER.
+// FuncCall is a function invocation, possibly with DISTINCT, *, ORDER BY in the
+// argument list, a FILTER clause, WITHIN GROUP, or an OVER window.
 type FuncCall struct {
-	Name     string
-	Schema   string
-	Args     []Expr
-	Distinct bool
-	Star     bool // count(*)
-	Over     *WindowDef
+	Name        string
+	Schema      string
+	Args        []Expr
+	Distinct    bool
+	Star        bool        // count(*)
+	OrderBy     []OrderItem // aggregate ORDER BY: array_agg(x ORDER BY y)
+	Filter      Expr        // FILTER (WHERE ...)
+	WithinGroup []OrderItem // WITHIN GROUP (ORDER BY ...)
+	Over        *WindowDef
 }
 
 // CaseExpr is a CASE expression.
@@ -309,36 +345,47 @@ type ExistsExpr struct {
 // ParenExpr preserves explicit parentheses for faithful round-tripping.
 type ParenExpr struct{ Expr Expr }
 
-func (*ColumnRef) node()    {}
-func (*Star) node()         {}
-func (*Literal) node()      {}
-func (*Param) node()        {}
-func (*BinaryExpr) node()   {}
-func (*UnaryExpr) node()    {}
-func (*FuncCall) node()     {}
-func (*CaseExpr) node()     {}
-func (*CastExpr) node()     {}
-func (*InExpr) node()       {}
-func (*BetweenExpr) node()  {}
-func (*IsExpr) node()       {}
-func (*LikeExpr) node()     {}
-func (*SubqueryExpr) node() {}
-func (*ExistsExpr) node()   {}
-func (*ParenExpr) node()    {}
+// SubscriptExpr is an array subscript a[i] or slice a[lo:hi]. For a slice,
+// Slice is true and either bound may be nil (a[:hi], a[lo:]).
+type SubscriptExpr struct {
+	Base  Expr
+	Lower Expr
+	Upper Expr
+	Slice bool
+}
 
-func (*ColumnRef) expr()    {}
-func (*Star) expr()         {}
-func (*Literal) expr()      {}
-func (*Param) expr()        {}
-func (*BinaryExpr) expr()   {}
-func (*UnaryExpr) expr()    {}
-func (*FuncCall) expr()     {}
-func (*CaseExpr) expr()     {}
-func (*CastExpr) expr()     {}
-func (*InExpr) expr()       {}
-func (*BetweenExpr) expr()  {}
-func (*IsExpr) expr()       {}
-func (*LikeExpr) expr()     {}
-func (*SubqueryExpr) expr() {}
-func (*ExistsExpr) expr()   {}
-func (*ParenExpr) expr()    {}
+func (*ColumnRef) node()     {}
+func (*Star) node()          {}
+func (*Literal) node()       {}
+func (*Param) node()         {}
+func (*BinaryExpr) node()    {}
+func (*UnaryExpr) node()     {}
+func (*FuncCall) node()      {}
+func (*CaseExpr) node()      {}
+func (*CastExpr) node()      {}
+func (*InExpr) node()        {}
+func (*BetweenExpr) node()   {}
+func (*IsExpr) node()        {}
+func (*LikeExpr) node()      {}
+func (*SubqueryExpr) node()  {}
+func (*ExistsExpr) node()    {}
+func (*ParenExpr) node()     {}
+func (*SubscriptExpr) node() {}
+
+func (*ColumnRef) expr()     {}
+func (*Star) expr()          {}
+func (*Literal) expr()       {}
+func (*Param) expr()         {}
+func (*BinaryExpr) expr()    {}
+func (*UnaryExpr) expr()     {}
+func (*FuncCall) expr()      {}
+func (*CaseExpr) expr()      {}
+func (*CastExpr) expr()      {}
+func (*InExpr) expr()        {}
+func (*BetweenExpr) expr()   {}
+func (*IsExpr) expr()        {}
+func (*LikeExpr) expr()      {}
+func (*SubqueryExpr) expr()  {}
+func (*ExistsExpr) expr()    {}
+func (*ParenExpr) expr()     {}
+func (*SubscriptExpr) expr() {}

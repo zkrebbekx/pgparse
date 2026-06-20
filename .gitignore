@@ -13,3 +13,6 @@ coverage.txt
 .idea/
 .vscode/
 .DS_Store
+
+# Go fuzz corpus cache
+testdata/fuzz/

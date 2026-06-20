@@ -205,12 +205,19 @@ func (l *Lexer) scanIdent(start int) Token {
 	return Token{Type: TokenIdent, Val: raw, Pos: start}
 }
 
-// scanOperator reads punctuation and multi-character operators.
+// scanOperator reads punctuation and operators. Beyond the arithmetic and
+// comparison operators (which have dedicated token types so the parser can give
+// them fixed precedence), it recognises PostgreSQL's open-ended operator class —
+// JSON/array (-> ->> #> @> <@ ?), bitwise (& | # << >>), and regex (~ ~* !~) —
+// emitting TokenOp with the operator text.
 func (l *Lexer) scanOperator(start int) Token {
 	c := l.src[start]
-	two := byte(0)
+	two, three := byte(0), byte(0)
 	if start+1 < len(l.src) {
 		two = l.src[start+1]
+	}
+	if start+2 < len(l.src) {
+		three = l.src[start+2]
 	}
 	mk := func(t TokenType, n int) Token {
 		l.pos += n
@@ -236,6 +243,12 @@ func (l *Lexer) scanOperator(start int) Token {
 	case '+':
 		return mk(TokenPlus, 1)
 	case '-':
+		if two == '>' && three == '>' {
+			return mk(TokenOp, 3) // ->>
+		}
+		if two == '>' {
+			return mk(TokenOp, 2) // ->
+		}
 		return mk(TokenMinus, 1)
 	case '/':
 		return mk(TokenSlash, 1)
@@ -249,7 +262,19 @@ func (l *Lexer) scanOperator(start int) Token {
 		if two == '=' {
 			return mk(TokenNeq, 2)
 		}
+		if two == '~' && three == '*' {
+			return mk(TokenOp, 3) // !~*
+		}
+		if two == '~' {
+			return mk(TokenOp, 2) // !~
+		}
 	case '<':
+		if two == '<' {
+			return mk(TokenOp, 2) // <<
+		}
+		if two == '@' {
+			return mk(TokenOp, 2) // <@
+		}
 		if two == '>' {
 			return mk(TokenNeq, 2)
 		}
@@ -258,6 +283,9 @@ func (l *Lexer) scanOperator(start int) Token {
 		}
 		return mk(TokenLt, 1)
 	case '>':
+		if two == '>' {
+			return mk(TokenOp, 2) // >>
+		}
 		if two == '=' {
 			return mk(TokenGte, 2)
 		}
@@ -266,6 +294,38 @@ func (l *Lexer) scanOperator(start int) Token {
 		if two == '|' {
 			return mk(TokenConcat, 2)
 		}
+		return mk(TokenOp, 1) // bitwise OR
+	case '&':
+		if two == '&' {
+			return mk(TokenOp, 2) // &&
+		}
+		return mk(TokenOp, 1) // bitwise AND
+	case '#':
+		if two == '>' && three == '>' {
+			return mk(TokenOp, 3) // #>>
+		}
+		if two == '>' {
+			return mk(TokenOp, 2) // #>
+		}
+		return mk(TokenOp, 1) // bitwise XOR
+	case '@':
+		if two == '>' {
+			return mk(TokenOp, 2) // @>
+		}
+		if two == '@' {
+			return mk(TokenOp, 2) // @@
+		}
+		return mk(TokenOp, 1)
+	case '~':
+		if two == '*' {
+			return mk(TokenOp, 2) // ~*
+		}
+		return mk(TokenOp, 1) // regex match / bitwise NOT
+	case '?':
+		if two == '|' || two == '&' {
+			return mk(TokenOp, 2) // ?| ?&
+		}
+		return mk(TokenOp, 1) // ? JSON key-exists
 	case ':':
 		if two == ':' {
 			return mk(TokenCast, 2)

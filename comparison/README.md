@@ -1,9 +1,13 @@
 # comparison
 
-A head-to-head benchmark of [`pgparse`](..) against
+Benchmarks and a completeness matrix comparing [`pgparse`](..) against
 [`pg_query_go`](https://github.com/pganalyze/pg_query_go) (the cgo binding around
-the real PostgreSQL parser) over the **TPC-H** query corpus in
-[`../testdata/tpch`](../testdata/tpch).
+the real PostgreSQL parser) and [GoSQLX](https://github.com/ajitpratap0/GoSQLX)
+(another pure-Go parser), over the **TPC-H** query corpus in
+[`../testdata/tpch`](../testdata/tpch) plus a curated feature set.
+
+- `BenchmarkCorpus_*` / `TestReport` — latency, bytes, allocs: pgparse vs pg_query_go.
+- `TestCompleteness` — a 23-feature acceptance matrix across all three engines.
 
 This is a **separate Go module** on purpose: `pg_query_go` requires cgo and a C
 toolchain, and the root `pgparse` module must stay cgo-free. Nothing here is

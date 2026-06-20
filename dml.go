@@ -188,27 +188,71 @@ func (p *Parser) parseDelete(with []*CTE) (*DeleteStmt, error) {
 	return del, nil
 }
 
-// parseAssignments parses "col = expr [, ...]" for SET clauses.
+// parseAssignments parses a SET list: either "col = expr" or the multi-column
+// "(col, ...) = (expr, ...)" / "(col, ...) = (SELECT ...)" form, comma-separated.
 func (p *Parser) parseAssignments() ([]Assignment, error) {
 	var asgs []Assignment
 	for {
-		col, err := p.parseIdent("column name")
+		a, err := p.parseAssignment()
 		if err != nil {
 			return nil, err
 		}
-		if !p.acceptType(TokenEq) {
-			return nil, p.errf(p.cur(), "expected '=' in assignment")
-		}
-		val, err := p.parseExpr()
-		if err != nil {
-			return nil, err
-		}
-		asgs = append(asgs, Assignment{Column: col, Value: val})
+		asgs = append(asgs, a)
 		if !p.acceptType(TokenComma) {
 			break
 		}
 	}
 	return asgs, nil
+}
+
+func (p *Parser) parseAssignment() (Assignment, error) {
+	if p.cur().Type == TokenLParen {
+		return p.parseMultiAssignment()
+	}
+	col, err := p.parseIdent("column name")
+	if err != nil {
+		return Assignment{}, err
+	}
+	if !p.acceptType(TokenEq) {
+		return Assignment{}, p.errf(p.cur(), "expected '=' in assignment")
+	}
+	val, err := p.parseExpr()
+	if err != nil {
+		return Assignment{}, err
+	}
+	return Assignment{Column: col, Value: val}, nil
+}
+
+// parseMultiAssignment parses "(a, b) = (v1, v2)" or "(a, b) = (SELECT ...)".
+func (p *Parser) parseMultiAssignment() (Assignment, error) {
+	cols, err := p.parseNameList()
+	if err != nil {
+		return Assignment{}, err
+	}
+	if !p.acceptType(TokenEq) {
+		return Assignment{}, p.errf(p.cur(), "expected '=' after column list")
+	}
+	a := Assignment{Columns: cols}
+	if _, err := p.expectType(TokenLParen, "'(' for value list"); err != nil {
+		return Assignment{}, err
+	}
+	if p.isKw(kwSelect) || p.isKw(kwWith) {
+		sub, err := p.parseSelect()
+		if err != nil {
+			return Assignment{}, err
+		}
+		a.Value = &SubqueryExpr{Select: sub}
+	} else {
+		vals, err := p.parseExprList()
+		if err != nil {
+			return Assignment{}, err
+		}
+		a.Values = vals
+	}
+	if _, err := p.expectType(TokenRParen, "')' after value list"); err != nil {
+		return Assignment{}, err
+	}
+	return a, nil
 }
 
 // parseTableName parses an optionally schema-qualified table name with alias.

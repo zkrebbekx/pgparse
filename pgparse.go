@@ -18,14 +18,29 @@
 //	sel := res.Stmts[0].(*pgparse.SelectStmt)
 package pgparse
 
+import "fmt"
+
 // ParseResult holds the statements produced from one input string.
 type ParseResult struct {
 	Stmts []Stmt
 }
 
 // Parse lexes and parses a SQL string containing one or more semicolon-
-// separated statements. It returns a *SyntaxError on the first failure.
-func Parse(sql string) (*ParseResult, error) {
+// separated statements. It returns a *SyntaxError on the first failure. As a
+// safety net, any internal panic is recovered and returned as an error so that
+// malformed input can never crash a caller.
+func Parse(sql string) (res *ParseResult, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			res, err = nil, &SyntaxError{Msg: fmt.Sprintf("internal parser panic: %v", r)}
+		}
+	}()
+	return parseInternal(sql)
+}
+
+// parseInternal does the real work without the panic guard, so the fuzz target
+// can surface any panic as a test failure rather than masking it.
+func parseInternal(sql string) (*ParseResult, error) {
 	toks, err := NewLexer(sql).Tokenize()
 	if err != nil {
 		return nil, err

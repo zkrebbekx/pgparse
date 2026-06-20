@@ -497,6 +497,12 @@ func (p *Parser) parseJoinRHS(jk JoinKind) (TableExpr, Expr, []string, error) {
 
 // parseTablePrimary parses a single relation, subquery, or parenthesised join.
 func (p *Parser) parseTablePrimary() (TableExpr, error) {
+	// Optional LATERAL prefix before a subquery (LATERAL is non-reserved).
+	lateral := false
+	if identIs(p.cur(), "lateral") {
+		p.advance()
+		lateral = true
+	}
 	if p.cur().Type == TokenLParen {
 		// Could be a subquery or a parenthesised join.
 		if p.peekAt(1).Type == TokenKeyword && (p.peekAt(1).Kw == kwSelect || p.peekAt(1).Kw == kwWith) {
@@ -508,7 +514,7 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 			if _, err := p.expectType(TokenRParen, "')'"); err != nil {
 				return nil, err
 			}
-			st := &SubqueryTable{Select: sub}
+			st := &SubqueryTable{Select: sub, Lateral: lateral}
 			p.acceptKw(kwAs)
 			if p.cur().Type == TokenIdent {
 				st.Alias = identText(p.advance())
