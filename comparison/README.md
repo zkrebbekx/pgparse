@@ -27,8 +27,7 @@ and libpg_query's bundled copy; it is harmless on other platforms.
 ## What is measured
 
 `loadCorpus` keeps only the queries that **both** engines accept, so each parser
-sees identical input (Q15 is excluded — it is `CREATE VIEW` DDL, which pgparse
-does not target). `BenchmarkCorpus_pgparse` and `BenchmarkCorpus_pg_query_go`
+sees identical input. `BenchmarkCorpus_pgparse` and `BenchmarkCorpus_pg_query_go`
 then parse that same set; `TestReport` prints a per-query latency, bytes, and
 allocation summary plus the speedup.
 

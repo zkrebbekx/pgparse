@@ -32,6 +32,16 @@ func (d *deparser) node(n Node) {
 		d.update(x)
 	case *DeleteStmt:
 		d.del(x)
+	case *CreateTableStmt:
+		d.createTable(x)
+	case *CreateViewStmt:
+		d.createView(x)
+	case *CreateIndexStmt:
+		d.createIndex(x)
+	case *DropStmt:
+		d.drop(x)
+	case *AlterTableStmt:
+		d.alter(x)
 	case Expr:
 		d.expr(x)
 	case TableExpr:

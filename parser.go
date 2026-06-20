@@ -121,8 +121,14 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		return p.parseUpdate(with)
 	case p.isKw(kwDelete):
 		return p.parseDelete(with)
+	case p.isKw(kwCreate):
+		return p.parseCreate()
+	case p.isKw(kwAlter):
+		return p.parseAlter()
+	case p.isKw(kwDrop):
+		return p.parseDrop()
 	}
-	return nil, p.errf(p.cur(), "expected a statement (SELECT/INSERT/UPDATE/DELETE)")
+	return nil, p.errf(p.cur(), "expected a statement (SELECT/INSERT/UPDATE/DELETE/CREATE/ALTER/DROP)")
 }
 
 // parseWith parses a WITH [RECURSIVE] cte [, cte]* clause.

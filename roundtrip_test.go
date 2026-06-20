@@ -36,6 +36,11 @@ func TestRoundTrip(t *testing.T) {
 			"(SELECT 1 UNION SELECT 2) INTERSECT SELECT 3",
 			"SELECT 1 UNION (SELECT 2 EXCEPT SELECT 3)",
 			"(SELECT a FROM t ORDER BY a LIMIT 1) UNION SELECT b FROM u",
+			"CREATE TABLE t (id bigint PRIMARY KEY, name text NOT NULL DEFAULT 'x', CONSTRAINT u UNIQUE (name))",
+			"CREATE OR REPLACE VIEW v AS SELECT a, b FROM t WHERE a > 0",
+			"CREATE UNIQUE INDEX i ON t USING btree (a, b DESC) WHERE a IS NOT NULL",
+			"DROP TABLE IF EXISTS a, b CASCADE",
+			"ALTER TABLE t ADD COLUMN c int, DROP COLUMN d, ALTER COLUMN e TYPE text, RENAME COLUMN f TO g",
 		}
 
 		Convey("When parsed, deparsed, and re-parsed", func() {
@@ -67,7 +72,7 @@ func TestRoundTripTPCH(t *testing.T) {
 				for _, name := range sortedKeys(corpus) {
 					res, err := Parse(corpus[name])
 					if err != nil {
-						continue // Q15 (DDL) is out of scope
+						continue // any query outside the supported subset
 					}
 					s1 := deparseAll(res)
 					res2, err := Parse(s1)

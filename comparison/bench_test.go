@@ -21,8 +21,8 @@ import (
 )
 
 // loadCorpus loads the TPC-H queries that BOTH parsers accept, so each engine
-// sees identical input. Queries either parser rejects (e.g. Q15's CREATE VIEW,
-// which pgparse does not target) are excluded to keep the comparison fair.
+// sees identical input. Any query either parser rejects is excluded to keep the
+// comparison fair.
 func loadCorpus(tb testing.TB) []string {
 	tb.Helper()
 	files, err := filepath.Glob("../testdata/tpch/*.sql")

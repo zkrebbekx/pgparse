@@ -92,6 +92,12 @@ toks, _ := pgparse.Tokenize("SELECT 1 + 2")
 - `UPDATE` — single and multi-column `SET (a, b) = (v1, v2)` / `= (SELECT ...)`,
   `FROM`, `WHERE`, `RETURNING`
 - `DELETE` — `USING`, `WHERE`, `RETURNING`
+- **DDL** — `CREATE TABLE` (column + table constraints: `PRIMARY KEY`,
+  `NOT NULL`, `UNIQUE`, `DEFAULT`, `CHECK`, `REFERENCES`/`FOREIGN KEY`,
+  `IF NOT EXISTS`, `TEMP`), `CREATE [OR REPLACE] VIEW`, `CREATE [UNIQUE] INDEX`
+  (`USING`, partial `WHERE`, `DESC`), `DROP TABLE/VIEW/INDEX` (`IF EXISTS`,
+  `CASCADE`), `ALTER TABLE` (`ADD`/`DROP COLUMN`, `ADD`/`DROP CONSTRAINT`,
+  `ALTER COLUMN … TYPE`/`SET`/`DROP DEFAULT`/`NOT NULL`, `RENAME`)
 
 **Expressions**
 
@@ -108,9 +114,10 @@ toks, _ := pgparse.Tokenize("SELECT 1 + 2")
 - Literals (string with `''` escapes, dollar-quoted, int/float, bool, NULL),
   positional parameters `$n`, qualified names `schema.table.column`, `table.*`
 
-**Out of scope (use `pg_query_go`):** DDL (`CREATE`/`ALTER`/`DROP`), `MERGE`,
-`GRANT`, PL/pgSQL bodies, `COPY`, full multi-word type grammar, and exact
-`pg_query` node-tree compatibility.
+**Out of scope (use `pg_query_go`):** `MERGE`, `GRANT`/`REVOKE`, PL/pgSQL
+bodies, `COPY`, multi-word type names (`timestamp with time zone`,
+`double precision` — use `timestamptz` etc.), the long tail of `ALTER`
+sub-commands, and exact `pg_query` node-tree compatibility.
 
 The AST is idiomatic typed Go (see [`ast.go`](ast.go)) — ergonomic to walk and
 pattern-match, not a protobuf mirror.
@@ -148,15 +155,16 @@ PostgreSQL parser) is the fidelity baseline; pgparse and
 
 | | pgparse | pg_query_go | GoSQLX |
 |---|:--:|:--:|:--:|
-| **features accepted** | **22 / 23** | 23 / 23 | 20 / 23 |
+| **features accepted** | **23 / 23** | 23 / 23 | 20 / 23 |
 | multi-column `UPDATE SET (a,b)=(…)` | ✓ | ✓ | ✗ |
 | `extract` / `substring` keyword syntax | ✓ | ✓ | ✗ |
 | typed literal + `INTERVAL '90' day` | ✓ | ✓ | ✗ |
 | `LATERAL` join | ✓ | ✓ | ✓ |
-| DDL `CREATE TABLE` | ✗ | ✓ | ✓ |
+| DDL `CREATE TABLE` | ✓ | ✓ | ✓ |
 
-pgparse's only miss against the baseline is DDL (out of scope). It parses the
-multi-column `UPDATE` form GoSQLX rejects. Reproduce with `make compare`.
+pgparse matches the real-PostgreSQL baseline across all 23 representative
+constructs, and parses the multi-column `UPDATE` form GoSQLX rejects. Reproduce
+with `make compare`.
 
 ## Performance
 
@@ -186,9 +194,8 @@ make bench
 
 ### Head-to-head vs `pg_query_go`
 
-Benchmarked over the **TPC-H** query corpus (the 21 of 22 queries that are pure
-DML — Q15 is `CREATE VIEW`, which pgparse does not target). Both engines parse
-the **identical** queries; `pg_query_go` is the cgo binding around the real
+Benchmarked over the **TPC-H** query corpus (all 22 queries parse). Both engines
+parse the **identical** queries; `pg_query_go` is the cgo binding around the real
 PostgreSQL parser. Apple M-series, Go 1.26, `go test -bench=Corpus -benchmem`:
 
 | Engine | ns / query | B / query | allocs / query |
@@ -210,7 +217,7 @@ never pulls in cgo. Reproduce:
 make compare        # see Makefile; sets the macOS CGO workaround
 ```
 
-Coverage of the corpus is asserted by `TestTPCHCoverage` (21/22).
+Coverage of the corpus is asserted by `TestTPCHCoverage` (22/22).
 
 ## License
 

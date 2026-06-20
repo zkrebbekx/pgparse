@@ -123,6 +123,9 @@ const (
 	kwArray
 	kwInterval
 	kwDefault
+	kwCreate
+	kwAlter
+	kwDrop
 )
 
 // keywords maps lowercase keyword text to its interned id. Lookup is the only
@@ -144,7 +147,8 @@ var keywords = map[string]Keyword{
 	"nothing": kwNothing, "asc": kwAsc, "desc": kwDesc, "nulls": kwNulls,
 	"first": kwFirst, "last": kwLast, "over": kwOver, "partition": kwPartition,
 	"exists": kwExists, "any": kwAny, "some": kwSome, "array": kwArray,
-	"interval": kwInterval, "default": kwDefault,
+	"interval": kwInterval, "default": kwDefault, "create": kwCreate,
+	"alter": kwAlter, "drop": kwDrop,
 }
 
 // lookupKeyword returns the keyword id for a lowercase identifier, or kwNone.
