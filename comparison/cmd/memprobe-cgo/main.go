@@ -9,7 +9,7 @@ package main
 import (
 	"flag"
 
-	pgcgo "github.com/pganalyze/pg_query_go/v5"
+	pgcgo "github.com/pganalyze/pg_query_go/v6"
 	"github.com/zkrebbekx/pgparse/comparison/internal/probe"
 )
 

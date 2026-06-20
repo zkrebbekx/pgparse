@@ -6,6 +6,10 @@ the real PostgreSQL parser) and [GoSQLX](https://github.com/ajitpratap0/GoSQLX)
 (another pure-Go parser), over the **TPC-H** query corpus in
 [`../testdata/tpch`](../testdata/tpch) plus a curated feature set.
 
+Versions under test (pinned in `go.mod`): `pg_query_go` **v6.2.2**, GoSQLX
+**v1.14.0**, and (for `make memcompare`) the wasm
+[`go-pgquery`](https://github.com/wasilibs/go-pgquery) on wazero v1.12.0.
+
 - `BenchmarkCorpus_*` / `TestReport` — latency, bytes, allocs: pgparse vs pg_query_go.
 - `TestCompleteness` — a 23-feature acceptance matrix across all three engines.
 - `TestRegressCompleteness` — breadth over a subset of the **PostgreSQL

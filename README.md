@@ -201,9 +201,14 @@ through parse → classify → deparse → re-parse — **~89% statement coverag
 A feature-by-feature acceptance matrix (in [`comparison/`](comparison)) over 23
 representative constructs, parsed by each engine. `pg_query_go` (the real
 PostgreSQL parser) is the fidelity baseline; pgparse and
-[GoSQLX](https://github.com/ajitpratap0/GoSQLX) are the pure-Go contenders:
+[GoSQLX](https://github.com/ajitpratap0/GoSQLX) are the pure-Go contenders.
 
-| | pgparse | pg_query_go | GoSQLX |
+> **Versions benchmarked** (latest releases at time of writing):
+> `pg_query_go` **v6.2.2** · GoSQLX **v1.14.0** ·
+> [`go-pgquery`](https://github.com/wasilibs/go-pgquery) (wasm, latest, wazero
+> v1.12.0) · pgparse — this repo. Reproduce with `make compare` / `make memcompare`.
+
+| | pgparse | pg_query_go v6 | GoSQLX v1.14 |
 |---|:--:|:--:|:--:|
 | **features accepted** | **23 / 23** | 23 / 23 | 20 / 23 |
 | multi-column `UPDATE SET (a,b)=(…)` | ✓ | ✓ | ✗ |
@@ -228,7 +233,7 @@ genuinely-valid statements each pure-Go parser also accepts:
 | | statements | accepted |
 |---|--:|--:|
 | **pgparse** | 7,985 | **97.8%** |
-| GoSQLX | 7,985 | 48.4% |
+| GoSQLX v1.14 | 7,985 | 48.4% |
 
 pgparse accepts **97.8%** of the real PostgreSQL statements `pg_query_go`
 accepts, far ahead of GoSQLX. Of those, DML, queries, and core DDL are parsed
@@ -245,23 +250,23 @@ use `pg_query_go`.
 ### vs `pg_query_go`, in one place
 
 `pg_query_go` *is* the PostgreSQL parser (via cgo), so on coverage it is the
-100% baseline. The trade is everything else. Measured over the 4,231 regression
+100% baseline. The trade is everything else. Measured over the ~5,300 regression
 statements both engines accept:
 
-| | pgparse | pg_query_go |
+| | pgparse | pg_query_go v6.2.2 |
 |---|--:|--:|
 | statements accepted (valid PG) | 98% | 100% |
-| latency / statement | **~2.8 µs** | ~50 µs |
+| latency / statement | **~3.0 µs** | ~55 µs |
 | speedup | **~18×** | 1× |
-| memory / statement | ~2.2 KB | ~2.9 KB |
-| allocations / statement | **~18** | ~56 |
+| memory / statement | ~2.3 KB | ~2.9 KB |
+| allocations / statement | **~18** | ~57 |
 | cgo / C toolchain | none | required |
 | startup memory cost | none | C runtime |
 
-Latency, memory, and allocations are measured over the 5,126 statements pgparse
-parses into a full AST (RawStmt-recognised statements are excluded so both sides
-do real parsing work). In short: `pg_query_go` for exhaustive fidelity; pgparse
-when you want most of the SQL real apps write, ~18× faster, with no cgo.
+Latency, memory, and allocations are measured over the statements pgparse parses
+into a full AST (RawStmt-recognised statements are excluded so both sides do real
+parsing work). In short: `pg_query_go` for exhaustive fidelity; pgparse when you
+want most of the SQL real apps write, ~18× faster, with no cgo.
 
 Reproduce all of the above with `make compare`.
 
@@ -278,19 +283,19 @@ M-series, one process per engine (`make memcompare`):
 
 | engine | ns / statement | startup RSS | peak RSS |
 |---|--:|--:|--:|
-| **pgparse** | **~2,600** | **4 MB** | **19 MB** |
-| GoSQLX | ~7,700 | 6 MB | 21 MB |
-| pg_query_go (cgo) | ~49,000 | 11 MB | 27 MB |
-| go-pgquery (wasm) | ~93,000 | 255 MB | 272 MB |
+| **pgparse** | **~2,600** | **3 MB** | **19 MB** |
+| GoSQLX v1.14 | ~7,700 | 5 MB | 21 MB |
+| pg_query_go v6 (cgo) | ~51,000 | 12 MB | 26 MB |
+| go-pgquery (wasm) | ~95,000 | 255 MB | 273 MB |
 
 **8 concurrent workers**
 
 | engine | ns / statement | peak RSS |
 |---|--:|--:|
-| **pgparse** | **~1,260** | **26 MB** |
-| GoSQLX | ~4,700 | 28 MB |
-| pg_query_go (cgo) | ~7,300 | 32 MB |
-| go-pgquery (wasm) | ~26,800 | **2,487 MB** |
+| **pgparse** | **~1,240** | **26 MB** |
+| GoSQLX v1.14 | ~4,500 | 28 MB |
+| pg_query_go v6 (cgo) | ~7,500 | 31 MB |
+| go-pgquery (wasm) | ~28,300 | **2,250 MB** |
 
 **The wasm memory issue, and why pgparse avoids it.** WebAssembly linear memory
 can only *grow* — `memory.grow` never shrinks, and freed blocks are not returned
@@ -341,14 +346,14 @@ make bench
 ### Head-to-head vs `pg_query_go`
 
 Benchmarked over the **TPC-H** query corpus (all 22 queries parse). Both engines
-parse the **identical** queries; `pg_query_go` is the cgo binding around the real
-PostgreSQL parser. Apple M-series, Go 1.26, `go test -bench=Corpus -benchmem`:
+parse the **identical** queries; `pg_query_go` **v6.2.2** is the cgo binding
+around the real PostgreSQL parser. Apple M-series, `go test -bench=Corpus -benchmem`:
 
 | Engine | ns / query | B / query | allocs / query |
 |---|--:|--:|--:|
-| **pgparse** | **~13,200** | **~9,300** | **~94** |
-| `pg_query_go` | ~358,000 | ~18,900 | ~395 |
-| **pgparse advantage** | **~27× faster** | **~2× less** | **~4× fewer** |
+| **pgparse** | **~14,200** | **~9,700** | **~94** |
+| `pg_query_go` v6 | ~376,000 | ~17,700 | ~392 |
+| **pgparse advantage** | **~26× faster** | **~2× less** | **~4× fewer** |
 
 `pg_query_go` does strictly *more* — it produces the full-fidelity PostgreSQL
 node tree for **every** statement kind. Its per-call cost includes the cgo
