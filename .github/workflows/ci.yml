@@ -24,3 +24,19 @@ jobs:
         run: go test -race ./...
       - name: bench (smoke)
         run: go test -run=^$ -bench=. -benchtime=10x ./...
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: coverage
+        run: go test -covermode=atomic -coverprofile=coverage.txt .
+      - name: upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.txt
+          fail_ci_if_error: false

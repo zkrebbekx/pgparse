@@ -1,5 +1,9 @@
 # pgparse
 
+[![ci](https://github.com/zkrebbekx/pgparse/actions/workflows/ci.yml/badge.svg)](https://github.com/zkrebbekx/pgparse/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/zkrebbekx/pgparse/graph/badge.svg)](https://codecov.io/gh/zkrebbekx/pgparse)
+[![Go Reference](https://pkg.go.dev/badge/github.com/zkrebbekx/pgparse.svg)](https://pkg.go.dev/github.com/zkrebbekx/pgparse)
+
 A **pure-Go PostgreSQL SQL parser**. No cgo. No WebAssembly runtime. No native
 library to link. It compiles into any Go program as ordinary source and imposes
 **zero per-process memory overhead at startup**.
