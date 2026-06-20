@@ -187,7 +187,26 @@ table partitioning, generated/identity columns, multi-word type names, and the
 long tail of DDL options). It is a pragmatic DML+DDL parser, not a full
 reimplementation of the PostgreSQL grammar — for that, use `pg_query_go`.
 
-Reproduce both with `make compare`.
+### vs `pg_query_go`, in one place
+
+`pg_query_go` *is* the PostgreSQL parser (via cgo), so on coverage it is the
+100% baseline. The trade is everything else. Measured over the 4,231 regression
+statements both engines accept:
+
+| | pgparse | pg_query_go |
+|---|--:|--:|
+| coverage (valid PG statements) | 53% | 100% |
+| latency / statement | **~2.3 µs** | ~43 µs |
+| speedup | **~18.6×** | 1× |
+| memory / statement | ~1.9 KB | ~2.6 KB |
+| allocations / statement | **~15** | ~48 |
+| cgo / C toolchain | none | required |
+| startup memory cost | none | C runtime |
+
+In short: `pg_query_go` for exhaustive fidelity; pgparse when you want most of
+the SQL real apps write, ~19× faster, with no cgo.
+
+Reproduce all of the above with `make compare`.
 
 ## Performance
 
