@@ -26,21 +26,20 @@ const (
 	TokenStar      // *
 
 	// Operators
-	TokenPlus     // +
-	TokenMinus    // -
-	TokenSlash    // /
-	TokenPercent  // %
-	TokenCaret    // ^
-	TokenEq       // =
-	TokenNeq      // <> or !=
-	TokenLt       // <
-	TokenLte      // <=
-	TokenGt       // >
-	TokenGte      // >=
-	TokenConcat   // ||
-	TokenCast     // ::
-	TokenTypecast // alias retained for clarity (same as ::)
-	TokenColon    // :
+	TokenPlus    // +
+	TokenMinus   // -
+	TokenSlash   // /
+	TokenPercent // %
+	TokenCaret   // ^
+	TokenEq      // =
+	TokenNeq     // <> or !=
+	TokenLt      // <
+	TokenLte     // <=
+	TokenGt      // >
+	TokenGte     // >=
+	TokenConcat  // ||
+	TokenCast    // ::
+	TokenColon   // :
 )
 
 // Token is a single lexical unit. Val aliases the source string (no copy), so a

@@ -175,9 +175,26 @@ func (p *Parser) isColumnListAhead() bool {
 // SELECT
 // ---------------------------------------------------------------------------
 
-// parseSelect parses a select expression including trailing set operations.
+// parseSelect parses a full select expression: set operations with correct
+// precedence (INTERSECT binds tighter than UNION/EXCEPT) followed by a single
+// trailing ORDER BY / LIMIT / OFFSET that applies to the whole expression.
 func (p *Parser) parseSelect() (*SelectStmt, error) {
-	left, err := p.parseSelectCore()
+	node, err := p.parseUnionExpr()
+	if err != nil {
+		return nil, err
+	}
+	// The tail binds to the entire (possibly set-op) expression, not to the
+	// last operand, matching PostgreSQL.
+	if err := p.parseTail(node); err != nil {
+		return nil, err
+	}
+	return node, nil
+}
+
+// parseUnionExpr handles the lowest-precedence set operators, UNION and EXCEPT,
+// left-associatively.
+func (p *Parser) parseUnionExpr() (*SelectStmt, error) {
+	left, err := p.parseIntersectExpr()
 	if err != nil {
 		return nil, err
 	}
@@ -186,8 +203,6 @@ func (p *Parser) parseSelect() (*SelectStmt, error) {
 		switch {
 		case p.isKw(kwUnion):
 			op = SetOpUnion
-		case p.isKw(kwIntersect):
-			op = SetOpIntersect
 		case p.isKw(kwExcept):
 			op = SetOpExcept
 		default:
@@ -198,7 +213,7 @@ func (p *Parser) parseSelect() (*SelectStmt, error) {
 		if !all {
 			p.acceptKw(kwDistinct)
 		}
-		right, err := p.parseSelectCore()
+		right, err := p.parseIntersectExpr()
 		if err != nil {
 			return nil, err
 		}
@@ -206,11 +221,32 @@ func (p *Parser) parseSelect() (*SelectStmt, error) {
 	}
 }
 
-// parseSelectCore parses a single SELECT ... block (no set operations) plus its
-// trailing ORDER BY / LIMIT / OFFSET, which bind to the whole expression.
-func (p *Parser) parseSelectCore() (*SelectStmt, error) {
+// parseIntersectExpr handles INTERSECT, which binds tighter than UNION/EXCEPT.
+func (p *Parser) parseIntersectExpr() (*SelectStmt, error) {
+	left, err := p.parseSelectPrimary()
+	if err != nil {
+		return nil, err
+	}
+	for p.isKw(kwIntersect) {
+		p.advance()
+		all := p.acceptKw(kwAll)
+		if !all {
+			p.acceptKw(kwDistinct)
+		}
+		right, err := p.parseSelectPrimary()
+		if err != nil {
+			return nil, err
+		}
+		left = &SelectStmt{SetOp: SetOpIntersect, SetAll: all, Left: left, Right: right}
+	}
+	return left, nil
+}
+
+// parseSelectPrimary parses one set-operation operand: either a parenthesised
+// select expression (which may carry its own tail inside the parens) or a bare
+// SELECT body.
+func (p *Parser) parseSelectPrimary() (*SelectStmt, error) {
 	if p.cur().Type == TokenLParen {
-		// Parenthesised select: ( SELECT ... ) [ORDER/LIMIT]
 		p.advance()
 		inner, err := p.parseSelect()
 		if err != nil {
@@ -219,11 +255,14 @@ func (p *Parser) parseSelectCore() (*SelectStmt, error) {
 		if _, err := p.expectType(TokenRParen, "')'"); err != nil {
 			return nil, err
 		}
-		if err := p.parseTail(inner); err != nil {
-			return nil, err
-		}
 		return inner, nil
 	}
+	return p.parseSelectBody()
+}
+
+// parseSelectBody parses a single SELECT ... block up to but excluding the
+// trailing ORDER BY / LIMIT / OFFSET, which the caller attaches.
+func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 	if !p.acceptKw(kwSelect) {
 		return nil, p.errf(p.cur(), "expected SELECT")
 	}
@@ -281,9 +320,6 @@ func (p *Parser) parseSelectCore() (*SelectStmt, error) {
 		if err != nil {
 			return nil, err
 		}
-	}
-	if err := p.parseTail(s); err != nil {
-		return nil, err
 	}
 	return s, nil
 }

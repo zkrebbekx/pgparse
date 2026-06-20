@@ -72,6 +72,33 @@ func TestSelect(t *testing.T) {
 		})
 	})
 
+	Convey("Given ORDER BY / LIMIT trailing a UNION", t, func() {
+		Convey("When parsed", func() {
+			s, _ := ParseOne("SELECT a FROM t UNION SELECT a FROM u ORDER BY a LIMIT 5")
+			Convey("Then the tail binds to the whole union, not the last operand", func() {
+				sel := s.(*SelectStmt)
+				So(sel.SetOp, ShouldEqual, SetOpUnion)
+				So(len(sel.OrderBy), ShouldEqual, 1)
+				So(sel.Limit.(*Literal).Val, ShouldEqual, "5")
+				// The right operand must NOT have absorbed the tail.
+				So(len(sel.Right.OrderBy), ShouldEqual, 0)
+				So(sel.Right.Limit, ShouldBeNil)
+			})
+		})
+	})
+
+	Convey("Given mixed UNION and INTERSECT", t, func() {
+		Convey("When parsed", func() {
+			s, _ := ParseOne("SELECT 1 UNION SELECT 2 INTERSECT SELECT 3")
+			Convey("Then INTERSECT binds tighter than UNION", func() {
+				sel := s.(*SelectStmt)
+				So(sel.SetOp, ShouldEqual, SetOpUnion)
+				// Right side is (SELECT 2 INTERSECT SELECT 3).
+				So(sel.Right.SetOp, ShouldEqual, SetOpIntersect)
+			})
+		})
+	})
+
 	Convey("Given a CTE feeding a select", t, func() {
 		Convey("When parsed", func() {
 			s, err := ParseOne("WITH recent AS (SELECT * FROM orders) SELECT * FROM recent")
