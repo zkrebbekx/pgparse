@@ -45,7 +45,7 @@ func parseInternal(sql string) (*ParseResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := newParser(toks)
+	p := newParser(sql, toks)
 	stmts, err := p.parseStatements()
 	if err != nil {
 		return nil, err

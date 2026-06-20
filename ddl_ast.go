@@ -134,6 +134,17 @@ type AlterAction struct {
 	Cascade    bool
 }
 
+// RawStmt is a statement pgparse recognises by its leading keyword but does not
+// model structurally — utility and administrative commands (ANALYZE, SET, COPY,
+// GRANT, CREATE TYPE/SEQUENCE/…, DROP ROLE, …). Its token span is validated
+// (balanced delimiters, proper termination), and the verbatim SQL is preserved.
+type RawStmt struct {
+	Keyword string // leading keyword, upper-cased (e.g. "ANALYZE", "SET")
+	SQL     string // verbatim statement text
+}
+
+func (*RawStmt) node()         {}
+func (*RawStmt) stmt()         {}
 func (*CreateTableStmt) node() {}
 func (*CreateViewStmt) node()  {}
 func (*CreateIndexStmt) node() {}

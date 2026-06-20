@@ -21,20 +21,26 @@ func (p *Parser) parseInsert(with []*CTE) (*InsertStmt, error) {
 	}
 
 	switch {
+	case p.isKw(kwDefault):
+		p.advance()
+		if !p.acceptKw(kwValues) {
+			return nil, p.errf(p.cur(), "expected VALUES after DEFAULT")
+		}
+		ins.DefaultValues = true
 	case p.acceptKw(kwValues):
 		rows, err := p.parseValuesRows()
 		if err != nil {
 			return nil, err
 		}
 		ins.Rows = rows
-	case p.isKw(kwSelect) || p.isKw(kwWith) || p.cur().Type == TokenLParen:
+	case p.isKw(kwSelect) || p.isKw(kwWith) || p.isKw(kwValues) || p.cur().Type == TokenLParen:
 		sel, err := p.parseSelect()
 		if err != nil {
 			return nil, err
 		}
 		ins.Select = sel
 	default:
-		return nil, p.errf(p.cur(), "expected VALUES or SELECT in INSERT")
+		return nil, p.errf(p.cur(), "expected VALUES, SELECT, or DEFAULT VALUES in INSERT")
 	}
 
 	if p.isKw(kwOn) {
@@ -92,12 +98,28 @@ func (p *Parser) parseOnConflict() (*OnConflict, error) {
 		return nil, p.errf(p.cur(), "expected CONFLICT after ON")
 	}
 	oc := &OnConflict{}
-	if p.isColumnListAhead() {
+	if p.acceptWord("on") || p.isWord("constraint") {
+		// ON CONFLICT ON CONSTRAINT name
+		if err := p.expectWord("constraint"); err != nil {
+			return nil, err
+		}
+		n, err := p.parseIdent("constraint name")
+		if err != nil {
+			return nil, err
+		}
+		oc.Constraint = n
+	} else if p.isColumnListAhead() {
 		cols, err := p.parseNameList()
 		if err != nil {
 			return nil, err
 		}
 		oc.Targets = cols
+		if p.acceptKw(kwWhere) {
+			oc.IndexWhere, err = p.parseExpr()
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	if !p.acceptKw(kwDo) {
 		return nil, p.errf(p.cur(), "expected DO in ON CONFLICT")
@@ -117,6 +139,12 @@ func (p *Parser) parseOnConflict() (*OnConflict, error) {
 		return nil, err
 	}
 	oc.DoUpdate = asgs
+	if p.acceptKw(kwWhere) {
+		oc.UpdateWhere, err = p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+	}
 	return oc, nil
 }
 
@@ -209,18 +237,26 @@ func (p *Parser) parseAssignment() (Assignment, error) {
 	if p.cur().Type == TokenLParen {
 		return p.parseMultiAssignment()
 	}
-	col, err := p.parseIdent("column name")
+	// The target is a column, possibly with a subscript or field indirection
+	// (e.g. tags[1], composite.field).
+	lhs, err := p.parsePostfix()
 	if err != nil {
 		return Assignment{}, err
+	}
+	var a Assignment
+	if cr, ok := lhs.(*ColumnRef); ok && len(cr.Parts) == 1 {
+		a.Column = cr.Parts[0]
+	} else {
+		a.Target = lhs
 	}
 	if !p.acceptType(TokenEq) {
 		return Assignment{}, p.errf(p.cur(), "expected '=' in assignment")
 	}
-	val, err := p.parseExpr()
+	a.Value, err = p.parseExpr()
 	if err != nil {
 		return Assignment{}, err
 	}
-	return Assignment{Column: col, Value: val}, nil
+	return a, nil
 }
 
 // parseMultiAssignment parses "(a, b) = (v1, v2)" or "(a, b) = (SELECT ...)".

@@ -31,6 +31,29 @@ func (p *Parser) expectWord(s string) error {
 	return nil
 }
 
+// utilityWords are leading keywords of utility and administrative statements
+// that pgparse recognises (and validates the extent of) but does not model
+// structurally; they are parsed into a RawStmt.
+var utilityWords = map[string]bool{
+	"analyze": true, "analyse": true, "vacuum": true, "explain": true,
+	"set": true, "reset": true, "show": true, "copy": true, "comment": true,
+	"grant": true, "revoke": true, "begin": true, "start": true, "commit": true,
+	"end": true, "rollback": true, "abort": true, "savepoint": true,
+	"release": true, "truncate": true, "cluster": true, "reindex": true,
+	"prepare": true, "execute": true, "deallocate": true, "declare": true,
+	"fetch": true, "move": true, "close": true, "lock": true, "do": true,
+	"call": true, "listen": true, "notify": true, "unlisten": true,
+	"discard": true, "refresh": true, "checkpoint": true, "load": true,
+	"reassign": true, "import": true, "security": true, "merge": true,
+}
+
+func isUtilityStart(t Token) bool {
+	if t.Type != TokenIdent && t.Type != TokenKeyword {
+		return false
+	}
+	return utilityWords[strings.ToLower(t.Val)]
+}
+
 // parseObjectName parses an optionally schema-qualified object name (no alias).
 func (p *Parser) parseObjectName() (*TableName, error) {
 	name, err := p.parseIdent("name")
@@ -80,13 +103,30 @@ func (p *Parser) parseCreate() (Stmt, error) {
 
 	switch {
 	case p.acceptWord("table"):
-		return p.parseCreateTable(temp)
+		return p.ddlOrRaw(func() (Stmt, error) { return p.parseCreateTable(temp) })
 	case p.acceptWord("view"):
-		return p.parseCreateView(orReplace, temp)
+		return p.ddlOrRaw(func() (Stmt, error) { return p.parseCreateView(orReplace, temp) })
 	case p.acceptWord("index"):
-		return p.parseCreateIndex(unique)
+		return p.ddlOrRaw(func() (Stmt, error) { return p.parseCreateIndex(unique) })
 	}
-	return nil, p.errf(p.cur(), "expected TABLE, VIEW, or INDEX after CREATE")
+	// Other CREATE forms (TYPE, SEQUENCE, SCHEMA, FUNCTION, …) are recognised but
+	// not modelled.
+	p.pos = p.stmtStart
+	return p.parseRawStmt()
+}
+
+// ddlOrRaw runs a structured DDL parser; if it fails on a tail pgparse does not
+// model (partitioning, storage options, inheritance, …), it rewinds and accepts
+// the statement as a RawStmt. This best-effort fallback applies only to DDL —
+// DML and query parsing report errors normally.
+func (p *Parser) ddlOrRaw(parse func() (Stmt, error)) (Stmt, error) {
+	start := p.stmtStart
+	stmt, err := parse()
+	if err != nil {
+		p.pos = start
+		return p.parseRawStmt()
+	}
+	return stmt, nil
 }
 
 func (p *Parser) parseCreateTable(temp bool) (Stmt, error) {
@@ -389,7 +429,10 @@ func (p *Parser) parseDrop() (Stmt, error) {
 	case p.acceptWord("sequence"):
 		obj = "SEQUENCE"
 	default:
-		return nil, p.errf(p.cur(), "expected TABLE, VIEW, INDEX, or SEQUENCE after DROP")
+		// DROP of other object kinds (ROLE, TYPE, FUNCTION, …) is recognised but
+		// not modelled.
+		p.pos = p.stmtStart
+		return p.parseRawStmt()
 	}
 	d := &DropStmt{Object: obj}
 	if p.acceptWord("if") {
@@ -423,7 +466,10 @@ func (p *Parser) parseDrop() (Stmt, error) {
 func (p *Parser) parseAlter() (Stmt, error) {
 	p.advance() // ALTER
 	if !p.acceptWord("table") {
-		return nil, p.errf(p.cur(), "expected TABLE after ALTER")
+		// ALTER of other object kinds (INDEX, SEQUENCE, ROLE, …) is recognised
+		// but not modelled.
+		p.pos = p.stmtStart
+		return p.parseRawStmt()
 	}
 	ife := false
 	if p.acceptWord("if") {
@@ -434,13 +480,16 @@ func (p *Parser) parseAlter() (Stmt, error) {
 	}
 	name, err := p.parseObjectName()
 	if err != nil {
-		return nil, err
+		p.pos = p.stmtStart
+		return p.parseRawStmt()
 	}
 	at := &AlterTableStmt{Table: name, IfExists: ife}
 	for {
 		a, err := p.parseAlterAction()
 		if err != nil {
-			return nil, err
+			// An action pgparse does not model — accept the whole statement raw.
+			p.pos = p.stmtStart
+			return p.parseRawStmt()
 		}
 		at.Actions = append(at.Actions, a)
 		if !p.acceptType(TokenComma) {

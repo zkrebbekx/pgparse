@@ -117,12 +117,29 @@ func loadRegressShared(tb testing.TB) []string {
 			if s == "" || strings.HasPrefix(s, "\\") {
 				continue
 			}
-			if safeParse(pgParse, s) && safeParse(ppParse, s) {
+			// Only statements pgparse FULLY parses (not RawStmt) are benchmarked,
+			// so the latency comparison reflects real parsing work on both sides.
+			if safeParse(pgParse, s) && ppFullyParsed(s) {
 				shared = append(shared, s)
 			}
 		}
 	}
 	return shared
+}
+
+// ppFullyParsed reports whether pgparse parses sql into structured AST nodes
+// (no RawStmt recognised-but-unmodelled statements).
+func ppFullyParsed(sql string) bool {
+	res, err := pgparse.Parse(sql)
+	if err != nil {
+		return false
+	}
+	for _, st := range res.Stmts {
+		if _, raw := st.(*pgparse.RawStmt); raw {
+			return false
+		}
+	}
+	return true
 }
 
 func BenchmarkRegress_pgparse(b *testing.B) {

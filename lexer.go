@@ -205,20 +205,15 @@ func (l *Lexer) scanIdent(start int) Token {
 	return Token{Type: TokenIdent, Val: raw, Pos: start}
 }
 
-// scanOperator reads punctuation and operators. Beyond the arithmetic and
-// comparison operators (which have dedicated token types so the parser can give
-// them fixed precedence), it recognises PostgreSQL's open-ended operator class —
-// JSON/array (-> ->> #> @> <@ ?), bitwise (& | # << >>), and regex (~ ~* !~) —
-// emitting TokenOp with the operator text.
+// scanOperator reads punctuation and operators. Non-operator punctuation has
+// dedicated single-character tokens. For operators it follows PostgreSQL: a
+// maximal run of operator characters forms one operator. Runs that exactly match
+// an arithmetic or comparison operator get a dedicated token type (so the parser
+// can assign fixed precedence); every other run — JSON/array, bitwise, regex,
+// and geometric operators (-> ->> #> @> <@ ?| << >> ~* !~ <<| &< <-> ...) —
+// becomes a TokenOp carrying the operator text.
 func (l *Lexer) scanOperator(start int) Token {
 	c := l.src[start]
-	two, three := byte(0), byte(0)
-	if start+1 < len(l.src) {
-		two = l.src[start+1]
-	}
-	if start+2 < len(l.src) {
-		three = l.src[start+2]
-	}
 	mk := func(t TokenType, n int) Token {
 		l.pos += n
 		return Token{Type: t, Val: l.src[start : start+n], Pos: start}
@@ -238,101 +233,60 @@ func (l *Lexer) scanOperator(start int) Token {
 		return mk(TokenRBracket, 1)
 	case '.':
 		return mk(TokenDot, 1)
-	case '*':
-		return mk(TokenStar, 1)
-	case '+':
-		return mk(TokenPlus, 1)
-	case '-':
-		if two == '>' && three == '>' {
-			return mk(TokenOp, 3) // ->>
-		}
-		if two == '>' {
-			return mk(TokenOp, 2) // ->
-		}
-		return mk(TokenMinus, 1)
-	case '/':
-		return mk(TokenSlash, 1)
-	case '%':
-		return mk(TokenPercent, 1)
-	case '^':
-		return mk(TokenCaret, 1)
-	case '=':
-		return mk(TokenEq, 1)
-	case '!':
-		if two == '=' {
-			return mk(TokenNeq, 2)
-		}
-		if two == '~' && three == '*' {
-			return mk(TokenOp, 3) // !~*
-		}
-		if two == '~' {
-			return mk(TokenOp, 2) // !~
-		}
-	case '<':
-		if two == '<' {
-			return mk(TokenOp, 2) // <<
-		}
-		if two == '@' {
-			return mk(TokenOp, 2) // <@
-		}
-		if two == '>' {
-			return mk(TokenNeq, 2)
-		}
-		if two == '=' {
-			return mk(TokenLte, 2)
-		}
-		return mk(TokenLt, 1)
-	case '>':
-		if two == '>' {
-			return mk(TokenOp, 2) // >>
-		}
-		if two == '=' {
-			return mk(TokenGte, 2)
-		}
-		return mk(TokenGt, 1)
-	case '|':
-		if two == '|' {
-			return mk(TokenConcat, 2)
-		}
-		return mk(TokenOp, 1) // bitwise OR
-	case '&':
-		if two == '&' {
-			return mk(TokenOp, 2) // &&
-		}
-		return mk(TokenOp, 1) // bitwise AND
-	case '#':
-		if two == '>' && three == '>' {
-			return mk(TokenOp, 3) // #>>
-		}
-		if two == '>' {
-			return mk(TokenOp, 2) // #>
-		}
-		return mk(TokenOp, 1) // bitwise XOR
-	case '@':
-		if two == '>' {
-			return mk(TokenOp, 2) // @>
-		}
-		if two == '@' {
-			return mk(TokenOp, 2) // @@
-		}
-		return mk(TokenOp, 1)
-	case '~':
-		if two == '*' {
-			return mk(TokenOp, 2) // ~*
-		}
-		return mk(TokenOp, 1) // regex match / bitwise NOT
-	case '?':
-		if two == '|' || two == '&' {
-			return mk(TokenOp, 2) // ?| ?&
-		}
-		return mk(TokenOp, 1) // ? JSON key-exists
 	case ':':
-		if two == ':' {
+		if start+1 < len(l.src) && l.src[start+1] == ':' {
 			return mk(TokenCast, 2)
 		}
 		return mk(TokenColon, 1)
 	}
-	return l.errTok(start, "unexpected character "+string(c))
+	if !isOpChar(c) {
+		return l.errTok(start, "unexpected character "+string(c))
+	}
+	// Maximal run of operator characters.
+	end := start
+	for end < len(l.src) && isOpChar(l.src[end]) {
+		end++
+	}
+	run := l.src[start:end]
+	l.pos = end
+	switch run {
+	case "+":
+		return Token{Type: TokenPlus, Val: run, Pos: start}
+	case "-":
+		return Token{Type: TokenMinus, Val: run, Pos: start}
+	case "*":
+		return Token{Type: TokenStar, Val: run, Pos: start}
+	case "/":
+		return Token{Type: TokenSlash, Val: run, Pos: start}
+	case "%":
+		return Token{Type: TokenPercent, Val: run, Pos: start}
+	case "^":
+		return Token{Type: TokenCaret, Val: run, Pos: start}
+	case "=":
+		return Token{Type: TokenEq, Val: run, Pos: start}
+	case "<":
+		return Token{Type: TokenLt, Val: run, Pos: start}
+	case ">":
+		return Token{Type: TokenGt, Val: run, Pos: start}
+	case "<=":
+		return Token{Type: TokenLte, Val: run, Pos: start}
+	case ">=":
+		return Token{Type: TokenGte, Val: run, Pos: start}
+	case "<>", "!=":
+		return Token{Type: TokenNeq, Val: run, Pos: start}
+	case "||":
+		return Token{Type: TokenConcat, Val: run, Pos: start}
+	}
+	return Token{Type: TokenOp, Val: run, Pos: start}
+}
+
+// isOpChar reports whether c is a PostgreSQL operator character.
+func isOpChar(c byte) bool {
+	switch c {
+	case '+', '-', '*', '/', '<', '>', '=', '~', '!', '@', '#', '%', '^', '&', '|', '`', '?':
+		return true
+	}
+	return false
 }
 
 func isDigit(c byte) bool      { return c >= '0' && c <= '9' }

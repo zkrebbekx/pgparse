@@ -309,6 +309,71 @@ func TestPostgresConstructs(t *testing.T) {
 	})
 }
 
+func TestExtendedFeatures(t *testing.T) {
+	Convey("Given assorted PostgreSQL constructs", t, func() {
+		Convey("When a quantified comparison '= ANY(...)' is parsed", func() {
+			s, err := ParseOne("SELECT * FROM t WHERE id = ANY (ARRAY[1, 2, 3])")
+			So(err, ShouldBeNil)
+			aa := s.(*SelectStmt).Where.(*AnyAllExpr)
+			So(aa.Any, ShouldBeTrue)
+			So(aa.Right, ShouldHaveSameTypeAs, &ArrayExpr{})
+		})
+
+		Convey("When IS DISTINCT FROM is parsed", func() {
+			s, err := ParseOne("SELECT * FROM t WHERE a IS DISTINCT FROM b")
+			So(err, ShouldBeNil)
+			So(s.(*SelectStmt).Where, ShouldHaveSameTypeAs, &IsDistinctExpr{})
+		})
+
+		Convey("When a bare VALUES statement is parsed", func() {
+			s, err := ParseOne("VALUES (1, 'a'), (2, 'b')")
+			So(err, ShouldBeNil)
+			So(len(s.(*SelectStmt).Values), ShouldEqual, 2)
+		})
+
+		Convey("When GROUP BY ROLLUP is parsed", func() {
+			s, err := ParseOne("SELECT a, sum(b) FROM t GROUP BY ROLLUP (a, b)")
+			So(err, ShouldBeNil)
+			g := s.(*SelectStmt).GroupBy[0].(*GroupingExpr)
+			So(g.Kind, ShouldEqual, "ROLLUP")
+			So(len(g.Args), ShouldEqual, 2)
+		})
+
+		Convey("When a set-returning function appears in FROM", func() {
+			s, err := ParseOne("SELECT * FROM generate_series(1, 5) AS g (n)")
+			So(err, ShouldBeNil)
+			ft := s.(*SelectStmt).From[0].(*FuncTable)
+			So(ft.Alias, ShouldEqual, "g")
+			So(ft.Columns, ShouldResemble, []string{"n"})
+		})
+
+		Convey("When FETCH FIRST and FOR UPDATE are parsed", func() {
+			s, err := ParseOne("SELECT * FROM t ORDER BY a FETCH FIRST 5 ROWS ONLY FOR UPDATE OF t NOWAIT")
+			So(err, ShouldBeNil)
+			sel := s.(*SelectStmt)
+			So(sel.Limit.(*Literal).Val, ShouldEqual, "5")
+			So(sel.Locking[0].Strength, ShouldEqual, "UPDATE")
+			So(sel.Locking[0].Wait, ShouldEqual, "NOWAIT")
+		})
+
+		Convey("When a utility statement is parsed", func() {
+			s, err := ParseOne("SET search_path TO public, app")
+			So(err, ShouldBeNil)
+			rs := s.(*RawStmt)
+			So(rs.Keyword, ShouldEqual, "SET")
+			So(rs.SQL, ShouldStartWith, "SET search_path")
+		})
+
+		Convey("When INSERT ... ON CONFLICT ... WHERE is parsed", func() {
+			s, err := ParseOne("INSERT INTO t (a) VALUES (1) ON CONFLICT (a) WHERE a > 0 DO UPDATE SET a = 2 WHERE t.a < 5")
+			So(err, ShouldBeNil)
+			oc := s.(*InsertStmt).OnConflict
+			So(oc.IndexWhere, ShouldNotBeNil)
+			So(oc.UpdateWhere, ShouldNotBeNil)
+		})
+	})
+}
+
 func TestDML(t *testing.T) {
 	Convey("Given an INSERT with columns, VALUES and RETURNING", t, func() {
 		Convey("When parsed", func() {

@@ -9,12 +9,14 @@ import (
 // Parser turns a token stream into an AST. One Parser handles one input; reuse
 // is not supported (cheap to allocate).
 type Parser struct {
-	toks []Token
-	pos  int
+	src       string
+	toks      []Token
+	pos       int
+	stmtStart int // token index where the current statement began
 }
 
 // newParser constructs a Parser over an already-lexed token slice.
-func newParser(toks []Token) *Parser { return &Parser{toks: toks} }
+func newParser(src string, toks []Token) *Parser { return &Parser{src: src, toks: toks} }
 
 func (p *Parser) cur() Token  { return p.toks[p.pos] }
 func (p *Parser) peek() Token { return p.toks[p.pos] }
@@ -97,6 +99,7 @@ func (p *Parser) parseStatements() ([]Stmt, error) {
 }
 
 func (p *Parser) parseStatement() (Stmt, error) {
+	p.stmtStart = p.pos
 	var with []*CTE
 	if p.isKw(kwWith) {
 		var err error
@@ -106,9 +109,9 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		}
 	}
 	switch {
-	case p.isKw(kwSelect), p.cur().Type == TokenLParen:
-		// A statement may be a parenthesised set-operation select, e.g.
-		// "(SELECT 1 UNION SELECT 2) INTERSECT SELECT 3".
+	case p.isKw(kwSelect), p.isKw(kwValues), p.cur().Type == TokenLParen:
+		// A statement may be a SELECT, a bare VALUES list, or a parenthesised
+		// set-operation select, e.g. "(SELECT 1 UNION SELECT 2) INTERSECT SELECT 3".
 		s, err := p.parseSelect()
 		if err != nil {
 			return nil, err
@@ -128,7 +131,40 @@ func (p *Parser) parseStatement() (Stmt, error) {
 	case p.isKw(kwDrop):
 		return p.parseDrop()
 	}
+	if isUtilityStart(p.cur()) {
+		return p.parseRawStmt()
+	}
 	return nil, p.errf(p.cur(), "expected a statement (SELECT/INSERT/UPDATE/DELETE/CREATE/ALTER/DROP)")
+}
+
+// parseRawStmt consumes a recognised but unmodelled statement up to (not
+// including) the top-level statement terminator, validating that delimiters are
+// balanced, and preserves the verbatim SQL.
+func (p *Parser) parseRawStmt() (Stmt, error) {
+	startTok := p.toks[p.stmtStart]
+	kw := strings.ToUpper(startTok.Val)
+	depth := 0
+	for !p.atEOF() {
+		t := p.cur()
+		if depth == 0 && t.Type == TokenSemicolon {
+			break
+		}
+		switch t.Type {
+		case TokenLParen, TokenLBracket:
+			depth++
+		case TokenRParen, TokenRBracket:
+			if depth > 0 {
+				depth--
+			}
+		}
+		p.advance()
+	}
+	end := len(p.src)
+	if !p.atEOF() {
+		end = p.cur().Pos
+	}
+	sql := strings.TrimSpace(p.src[startTok.Pos:end])
+	return &RawStmt{Keyword: kw, SQL: sql}, nil
 }
 
 // parseWith parses a WITH [RECURSIVE] cte [, cte]* clause.
@@ -265,6 +301,14 @@ func (p *Parser) parseSelectPrimary() (*SelectStmt, error) {
 		}
 		return inner, nil
 	}
+	if p.isKw(kwValues) {
+		p.advance()
+		rows, err := p.parseValuesRows()
+		if err != nil {
+			return nil, err
+		}
+		return &SelectStmt{Values: rows}, nil
+	}
 	return p.parseSelectBody()
 }
 
@@ -318,7 +362,9 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 		if !p.acceptKw(kwBy) {
 			return nil, p.errf(p.cur(), "expected BY after GROUP")
 		}
-		s.GroupBy, err = p.parseExprList()
+		p.acceptKw(kwAll)
+		p.acceptKw(kwDistinct)
+		s.GroupBy, err = p.parseGroupList()
 		if err != nil {
 			return nil, err
 		}
@@ -362,11 +408,153 @@ func (p *Parser) parseTail(s *SelectStmt) error {
 			return err
 		}
 		s.Offset = e
+		// Optional ROW / ROWS noise word.
+		if !p.acceptWord("rows") {
+			p.acceptWord("row")
+		}
+	}
+	// FETCH FIRST|NEXT [count] ROW|ROWS ONLY|WITH TIES.
+	if identIs(p.cur(), "fetch") {
+		p.advance()
+		if !p.acceptWord("first") {
+			p.acceptWord("next")
+		}
+		if !p.acceptWord("row") && !p.acceptWord("rows") {
+			e, err := p.parseExpr()
+			if err != nil {
+				return err
+			}
+			s.Limit = e
+			if !p.acceptWord("rows") {
+				p.acceptWord("row")
+			}
+		}
+		if !p.acceptWord("only") {
+			if p.acceptKw(kwWith) {
+				if err := p.expectWord("ties"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	// Row-level locking: FOR UPDATE|SHARE|... [OF t,...] [NOWAIT|SKIP LOCKED].
+	for identIs(p.cur(), "for") {
+		lc, err := p.parseLockClause()
+		if err != nil {
+			return err
+		}
+		s.Locking = append(s.Locking, lc)
 	}
 	return nil
 }
 
+func (p *Parser) parseLockClause() (LockClause, error) {
+	p.advance() // FOR
+	var lc LockClause
+	switch {
+	case p.isKw(kwUpdate):
+		p.advance()
+		lc.Strength = "UPDATE"
+	case identIs(p.cur(), "share"):
+		p.advance()
+		lc.Strength = "SHARE"
+	case identIs(p.cur(), "key"):
+		p.advance()
+		p.acceptWord("share")
+		lc.Strength = "KEY SHARE"
+	case identIs(p.cur(), "no"):
+		p.advance()
+		p.acceptWord("key")
+		p.acceptKw(kwUpdate)
+		lc.Strength = "NO KEY UPDATE"
+	default:
+		return lc, p.errf(p.cur(), "expected UPDATE/SHARE after FOR")
+	}
+	if p.acceptWord("of") {
+		for {
+			n, err := p.parseIdent("table name")
+			if err != nil {
+				return lc, err
+			}
+			lc.Of = append(lc.Of, n)
+			if !p.acceptType(TokenComma) {
+				break
+			}
+		}
+	}
+	if p.acceptWord("nowait") {
+		lc.Wait = "NOWAIT"
+	} else if p.acceptWord("skip") {
+		if err := p.expectWord("locked"); err != nil {
+			return lc, err
+		}
+		lc.Wait = "SKIP LOCKED"
+	}
+	return lc, nil
+}
+
+// parseGroupList parses GROUP BY elements, including ROLLUP/CUBE/GROUPING SETS
+// and the empty grouping "()".
+func (p *Parser) parseGroupList() ([]Expr, error) {
+	var list []Expr
+	for {
+		e, err := p.parseGroupElem()
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, e)
+		if !p.acceptType(TokenComma) {
+			break
+		}
+	}
+	return list, nil
+}
+
+func (p *Parser) parseGroupElem() (Expr, error) {
+	// Empty grouping set: ().
+	if p.cur().Type == TokenLParen && p.peekAt(1).Type == TokenRParen {
+		p.advance()
+		p.advance()
+		return &RowExpr{}, nil
+	}
+	var kind string
+	switch {
+	case identIs(p.cur(), "rollup"):
+		kind = "ROLLUP"
+	case identIs(p.cur(), "cube"):
+		kind = "CUBE"
+	case identIs(p.cur(), "grouping") && identIs(p.peekAt(1), "sets"):
+		kind = "GROUPING SETS"
+	}
+	if kind == "" {
+		return p.parseExpr()
+	}
+	p.advance() // ROLLUP/CUBE/GROUPING
+	if kind == "GROUPING SETS" {
+		p.advance() // SETS
+	}
+	if _, err := p.expectType(TokenLParen, "'(' after grouping element"); err != nil {
+		return nil, err
+	}
+	g := &GroupingExpr{Kind: kind}
+	if p.cur().Type != TokenRParen {
+		args, err := p.parseGroupList()
+		if err != nil {
+			return nil, err
+		}
+		g.Args = args
+	}
+	if _, err := p.expectType(TokenRParen, "')'"); err != nil {
+		return nil, err
+	}
+	return g, nil
+}
+
 func (p *Parser) parseSelectList() ([]SelectItem, error) {
+	// PostgreSQL allows an empty target list: SELECT FROM t.
+	if p.isKw(kwFrom) || p.atEOF() || p.cur().Type == TokenSemicolon || p.cur().Type == TokenRParen {
+		return nil, nil
+	}
 	var items []SelectItem
 	for {
 		var it SelectItem
@@ -433,15 +621,22 @@ func (p *Parser) parseTableExpr() (TableExpr, error) {
 		return nil, err
 	}
 	for {
+		natural := identIs(p.cur(), "natural")
+		if natural {
+			p.advance()
+		}
 		jk, ok := p.peekJoinKind()
 		if !ok {
+			if natural {
+				return nil, p.errf(p.cur(), "expected JOIN after NATURAL")
+			}
 			return left, nil
 		}
-		right, on, using, err := p.parseJoinRHS(jk)
+		right, on, using, err := p.parseJoinRHS(jk, natural)
 		if err != nil {
 			return nil, err
 		}
-		left = &JoinExpr{Kind: jk, Left: left, Right: right, On: on, Using: using}
+		left = &JoinExpr{Kind: jk, Natural: natural, Left: left, Right: right, On: on, Using: using}
 	}
 }
 
@@ -478,12 +673,12 @@ func (p *Parser) peekJoinKind() (JoinKind, bool) {
 	return 0, false
 }
 
-func (p *Parser) parseJoinRHS(jk JoinKind) (TableExpr, Expr, []string, error) {
+func (p *Parser) parseJoinRHS(jk JoinKind, natural bool) (TableExpr, Expr, []string, error) {
 	right, err := p.parseTablePrimary()
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	if jk == JoinCross {
+	if jk == JoinCross || natural {
 		return right, nil, nil, nil
 	}
 	if p.acceptKw(kwOn) {
@@ -513,7 +708,7 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 	}
 	if p.cur().Type == TokenLParen {
 		// Could be a subquery or a parenthesised join.
-		if p.peekAt(1).Type == TokenKeyword && (p.peekAt(1).Kw == kwSelect || p.peekAt(1).Kw == kwWith) {
+		if k := p.peekAt(1); k.Type == TokenKeyword && (k.Kw == kwSelect || k.Kw == kwWith || k.Kw == kwValues) {
 			p.advance()
 			sub, err := p.parseSelect()
 			if err != nil {
@@ -546,19 +741,52 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 		return inner, nil
 	}
 
-	tn := &TableName{}
+	parts := []string{}
 	name, err := p.parseIdent("table name")
 	if err != nil {
 		return nil, err
 	}
-	if p.acceptType(TokenDot) {
-		tn.Schema = name
-		tn.Name, err = p.parseIdent("table name")
+	parts = append(parts, name)
+	for p.acceptType(TokenDot) {
+		n, err := p.parseIdent("table name")
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		tn.Name = name
+		parts = append(parts, n)
+	}
+
+	// Set-returning function as a FROM item: func(args) [WITH ORDINALITY] [alias].
+	if p.cur().Type == TokenLParen {
+		fn, err := p.parseCallTail(parts)
+		if err != nil {
+			return nil, err
+		}
+		ft := &FuncTable{Func: fn, Lateral: lateral}
+		if p.isWord("with") && identIs(p.peekAt(1), "ordinality") {
+			p.advance()
+			p.advance()
+			ft.Ordinality = true
+		}
+		if alias, ok, err := p.parseTableAlias(); err != nil {
+			return nil, err
+		} else if ok {
+			ft.Alias = alias
+			if p.isColumnListAhead() {
+				ft.Columns, err = p.parseNameList()
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+		return ft, nil
+	}
+
+	tn := &TableName{}
+	switch len(parts) {
+	case 1:
+		tn.Name = parts[0]
+	default:
+		tn.Schema, tn.Name = parts[len(parts)-2], parts[len(parts)-1]
 	}
 	if alias, ok, err := p.parseTableAlias(); err != nil {
 		return nil, err
@@ -596,6 +824,12 @@ func (p *Parser) parseOrderList() ([]OrderItem, error) {
 			it.Desc = false
 		} else if p.acceptKw(kwDesc) {
 			it.Desc = true
+		} else if p.acceptKw(kwUsing) {
+			op := p.cur()
+			if op.Type != TokenOp && compOps[op.Type] == "" {
+				return nil, p.errf(op, "expected an operator after USING")
+			}
+			it.UsingOp = p.advance().Val
 		}
 		if p.acceptKw(kwNulls) {
 			it.NullsSet = true

@@ -65,6 +65,13 @@ func (p *Parser) parseComparison() (Expr, error) {
 	for {
 		if op, ok := compOps[p.cur().Type]; ok {
 			p.advance()
+			if p.isKw(kwAny) || p.isKw(kwSome) || p.isKw(kwAll) {
+				left, err = p.parseAnyAll(op, left)
+				if err != nil {
+					return nil, err
+				}
+				continue
+			}
 			right, err := p.parseOtherOp()
 			if err != nil {
 				return nil, err
@@ -124,8 +131,48 @@ func (p *Parser) parseIsTail(left Expr) (Expr, error) {
 		return &IsExpr{Expr: left, Not: not, Kind: LitBool, Bool: true}, nil
 	case p.acceptKw(kwFalse):
 		return &IsExpr{Expr: left, Not: not, Kind: LitBool, Bool: false}, nil
+	case p.acceptKw(kwDistinct):
+		if !p.acceptKw(kwFrom) {
+			return nil, p.errf(p.cur(), "expected FROM after IS DISTINCT")
+		}
+		right, err := p.parseOtherOp()
+		if err != nil {
+			return nil, err
+		}
+		return &IsDistinctExpr{Left: left, Right: right, Not: not}, nil
 	}
-	return nil, p.errf(p.cur(), "expected NULL/TRUE/FALSE after IS")
+	return nil, p.errf(p.cur(), "expected NULL/TRUE/FALSE/DISTINCT after IS")
+}
+
+// parseArray parses ARRAY[...] or ARRAY(subquery), the ARRAY keyword consumed.
+func (p *Parser) parseArray() (Expr, error) {
+	p.advance() // ARRAY
+	if p.cur().Type == TokenLBracket {
+		p.advance()
+		a := &ArrayExpr{}
+		if p.cur().Type != TokenRBracket {
+			els, err := p.parseExprList()
+			if err != nil {
+				return nil, err
+			}
+			a.Elements = els
+		}
+		if _, err := p.expectType(TokenRBracket, "']' to close ARRAY"); err != nil {
+			return nil, err
+		}
+		return a, nil
+	}
+	if _, err := p.expectType(TokenLParen, "'[' or '(' after ARRAY"); err != nil {
+		return nil, err
+	}
+	sub, err := p.parseSelect()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expectType(TokenRParen, "')'"); err != nil {
+		return nil, err
+	}
+	return &ArrayExpr{Subquery: sub}, nil
 }
 
 func (p *Parser) parseInTail(left Expr, not bool) (Expr, error) {
@@ -187,6 +234,13 @@ func (p *Parser) parseOtherOp() (Expr, error) {
 	}
 	for p.cur().Type == TokenOp || p.cur().Type == TokenConcat {
 		op := p.advance().Val
+		if p.isKw(kwAny) || p.isKw(kwSome) || p.isKw(kwAll) {
+			left, err = p.parseAnyAll(op, left)
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
 		right, err := p.parseAdditive()
 		if err != nil {
 			return nil, err
@@ -194,6 +248,34 @@ func (p *Parser) parseOtherOp() (Expr, error) {
 		left = &BinaryExpr{Op: op, Left: left, Right: right}
 	}
 	return left, nil
+}
+
+// parseAnyAll parses the right-hand "ANY/SOME/ALL (array | subquery)" of a
+// quantified comparison, the operator already consumed.
+func (p *Parser) parseAnyAll(op string, left Expr) (Expr, error) {
+	any := p.isKw(kwAny) || p.isKw(kwSome)
+	p.advance() // ANY/SOME/ALL
+	if _, err := p.expectType(TokenLParen, "'(' after ANY/ALL"); err != nil {
+		return nil, err
+	}
+	var right Expr
+	if p.isKw(kwSelect) || p.isKw(kwWith) || p.cur().Type == TokenLParen {
+		sub, err := p.parseSelect()
+		if err != nil {
+			return nil, err
+		}
+		right = &SubqueryExpr{Select: sub}
+	} else {
+		e, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		right = e
+	}
+	if _, err := p.expectType(TokenRParen, "')'"); err != nil {
+		return nil, err
+	}
+	return &AnyAllExpr{Op: op, Any: any, Left: left, Right: right}, nil
 }
 
 func (p *Parser) parseAdditive() (Expr, error) {
@@ -370,6 +452,21 @@ func (p *Parser) parseParenOrSubquery() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A comma turns the parenthesised group into a row/tuple constructor.
+	if p.cur().Type == TokenComma {
+		elems := []Expr{inner}
+		for p.acceptType(TokenComma) {
+			e, err := p.parseExpr()
+			if err != nil {
+				return nil, err
+			}
+			elems = append(elems, e)
+		}
+		if _, err := p.expectType(TokenRParen, "')'"); err != nil {
+			return nil, err
+		}
+		return &RowExpr{Elements: elems}, nil
+	}
 	if _, err := p.expectType(TokenRParen, "')'"); err != nil {
 		return nil, err
 	}
@@ -416,6 +513,8 @@ func (p *Parser) parseKeywordPrimary(t Token) (Expr, error) {
 			p.advance()
 		}
 		return &CastExpr{Expr: &Literal{Kind: LitString, Val: unquoteString(s.Val)}, Type: "interval"}, nil
+	case kwArray:
+		return p.parseArray()
 	}
 	return nil, p.errf(t, "unexpected keyword %q in expression", t.Val)
 }

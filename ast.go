@@ -40,6 +40,21 @@ type SelectStmt struct {
 	SetAll bool // UNION ALL vs UNION
 	Left   *SelectStmt
 	Right  *SelectStmt
+
+	// Values holds the rows of a VALUES query (VALUES (1,2),(3,4)). When set,
+	// this SelectStmt is a values list and the projection/FROM fields are empty.
+	Values [][]Expr
+
+	// Locking holds FOR UPDATE / FOR SHARE clauses.
+	Locking []LockClause
+}
+
+// LockClause is a row-level locking clause: FOR UPDATE/SHARE [OF t,...]
+// [NOWAIT|SKIP LOCKED].
+type LockClause struct {
+	Strength string   // "UPDATE", "NO KEY UPDATE", "SHARE", "KEY SHARE"
+	Of       []string // OF table list
+	Wait     string   // "", "NOWAIT", "SKIP LOCKED"
 }
 
 // SetOpKind identifies a set operation between two selects.
@@ -69,20 +84,24 @@ type SelectItem struct {
 
 // InsertStmt is INSERT INTO ... .
 type InsertStmt struct {
-	With       []*CTE
-	Table      *TableName
-	Columns    []string
-	Rows       [][]Expr    // VALUES rows
-	Select     *SelectStmt // INSERT ... SELECT (mutually exclusive with Rows)
-	OnConflict *OnConflict
-	Returning  []SelectItem
+	With          []*CTE
+	Table         *TableName
+	Columns       []string
+	Rows          [][]Expr    // VALUES rows
+	Select        *SelectStmt // INSERT ... SELECT (mutually exclusive with Rows)
+	DefaultValues bool        // INSERT INTO t DEFAULT VALUES
+	OnConflict    *OnConflict
+	Returning     []SelectItem
 }
 
-// OnConflict models a basic ON CONFLICT clause.
+// OnConflict models an ON CONFLICT clause.
 type OnConflict struct {
-	Targets   []string     // conflict target columns
-	DoNothing bool         // ON CONFLICT DO NOTHING
-	DoUpdate  []Assignment // ON CONFLICT DO UPDATE SET ...
+	Targets     []string     // conflict target columns
+	Constraint  string       // ON CONFLICT ON CONSTRAINT name
+	IndexWhere  Expr         // partial-index predicate on the conflict target
+	DoNothing   bool         // ON CONFLICT DO NOTHING
+	DoUpdate    []Assignment // ON CONFLICT DO UPDATE SET ...
+	UpdateWhere Expr         // DO UPDATE ... WHERE predicate
 }
 
 // UpdateStmt is UPDATE ... SET ... .
@@ -100,7 +119,8 @@ type UpdateStmt struct {
 // SET (a, b) = (v1, v2) or SET (a, b) = (SELECT ...), captured by Columns plus
 // either Values (the parenthesised expression list) or Value (a row subquery).
 type Assignment struct {
-	Column  string   // single-column target ("" when multi-column)
+	Column  string   // single-column target ("" when multi-column or indirected)
+	Target  Expr     // complex single target (subscript/field), e.g. tags[1]
 	Value   Expr     // single value, or a row subquery for the multi-column form
 	Columns []string // multi-column targets (nil for the single form)
 	Values  []Expr   // multi-column values aligned with Columns
@@ -151,11 +171,22 @@ type SubqueryTable struct {
 
 // JoinExpr joins two table expressions.
 type JoinExpr struct {
-	Kind  JoinKind
-	Left  TableExpr
-	Right TableExpr
-	On    Expr     // ON predicate
-	Using []string // USING (cols)
+	Kind    JoinKind
+	Natural bool // NATURAL join (no ON/USING)
+	Left    TableExpr
+	Right   TableExpr
+	On      Expr     // ON predicate
+	Using   []string // USING (cols)
+}
+
+// FuncTable is a set-returning function used as a FROM item, e.g.
+// generate_series(1, 10) AS g, optionally WITH ORDINALITY.
+type FuncTable struct {
+	Func       Expr // the function call
+	Lateral    bool
+	Ordinality bool
+	Alias      string
+	Columns    []string
 }
 
 // JoinKind enumerates join flavours.
@@ -172,9 +203,11 @@ const (
 func (*TableName) node()          {}
 func (*SubqueryTable) node()      {}
 func (*JoinExpr) node()           {}
+func (*FuncTable) node()          {}
 func (*TableName) tableExpr()     {}
 func (*SubqueryTable) tableExpr() {}
 func (*JoinExpr) tableExpr()      {}
+func (*FuncTable) tableExpr()     {}
 
 // ---------------------------------------------------------------------------
 // ORDER BY / windows
@@ -184,9 +217,19 @@ func (*JoinExpr) tableExpr()      {}
 type OrderItem struct {
 	Expr       Expr
 	Desc       bool
+	UsingOp    string // ORDER BY x USING <op>; "" when ASC/DESC
 	NullsFirst bool
 	NullsSet   bool // whether NULLS FIRST/LAST was explicit
 }
+
+// GroupingExpr is a GROUP BY grouping element: ROLLUP/CUBE/GROUPING SETS (...).
+type GroupingExpr struct {
+	Kind string // "ROLLUP", "CUBE", "GROUPING SETS"
+	Args []Expr
+}
+
+func (*GroupingExpr) node() {}
+func (*GroupingExpr) expr() {}
 
 // WindowDef is an OVER specification: either a reference to a named window
 // (only Ref set) or an inline definition.
@@ -354,38 +397,74 @@ type SubscriptExpr struct {
 	Slice bool
 }
 
-func (*ColumnRef) node()     {}
-func (*Star) node()          {}
-func (*Literal) node()       {}
-func (*Param) node()         {}
-func (*BinaryExpr) node()    {}
-func (*UnaryExpr) node()     {}
-func (*FuncCall) node()      {}
-func (*CaseExpr) node()      {}
-func (*CastExpr) node()      {}
-func (*InExpr) node()        {}
-func (*BetweenExpr) node()   {}
-func (*IsExpr) node()        {}
-func (*LikeExpr) node()      {}
-func (*SubqueryExpr) node()  {}
-func (*ExistsExpr) node()    {}
-func (*ParenExpr) node()     {}
-func (*SubscriptExpr) node() {}
+// AnyAllExpr is "Left Op ANY/ALL (Right)" where Right is an array expression or
+// a subquery. Any is true for ANY/SOME, false for ALL.
+type AnyAllExpr struct {
+	Op    string
+	Any   bool
+	Left  Expr
+	Right Expr // array expression, or *SubqueryExpr
+}
 
-func (*ColumnRef) expr()     {}
-func (*Star) expr()          {}
-func (*Literal) expr()       {}
-func (*Param) expr()         {}
-func (*BinaryExpr) expr()    {}
-func (*UnaryExpr) expr()     {}
-func (*FuncCall) expr()      {}
-func (*CaseExpr) expr()      {}
-func (*CastExpr) expr()      {}
-func (*InExpr) expr()        {}
-func (*BetweenExpr) expr()   {}
-func (*IsExpr) expr()        {}
-func (*LikeExpr) expr()      {}
-func (*SubqueryExpr) expr()  {}
-func (*ExistsExpr) expr()    {}
-func (*ParenExpr) expr()     {}
-func (*SubscriptExpr) expr() {}
+// ArrayExpr is an ARRAY[...] constructor or ARRAY(subquery).
+type ArrayExpr struct {
+	Elements []Expr
+	Subquery *SelectStmt
+}
+
+// IsDistinctExpr is "Left IS [NOT] DISTINCT FROM Right".
+type IsDistinctExpr struct {
+	Left  Expr
+	Right Expr
+	Not   bool
+}
+
+// RowExpr is a row/tuple constructor: ROW(a, b) or a bare (a, b, ...).
+type RowExpr struct {
+	Elements []Expr
+	Explicit bool // true when written ROW(...)
+}
+
+func (*ColumnRef) node()      {}
+func (*Star) node()           {}
+func (*Literal) node()        {}
+func (*Param) node()          {}
+func (*BinaryExpr) node()     {}
+func (*UnaryExpr) node()      {}
+func (*FuncCall) node()       {}
+func (*CaseExpr) node()       {}
+func (*CastExpr) node()       {}
+func (*InExpr) node()         {}
+func (*BetweenExpr) node()    {}
+func (*IsExpr) node()         {}
+func (*LikeExpr) node()       {}
+func (*SubqueryExpr) node()   {}
+func (*ExistsExpr) node()     {}
+func (*ParenExpr) node()      {}
+func (*SubscriptExpr) node()  {}
+func (*AnyAllExpr) node()     {}
+func (*ArrayExpr) node()      {}
+func (*IsDistinctExpr) node() {}
+func (*RowExpr) node()        {}
+
+func (*ColumnRef) expr()      {}
+func (*Star) expr()           {}
+func (*Literal) expr()        {}
+func (*Param) expr()          {}
+func (*BinaryExpr) expr()     {}
+func (*UnaryExpr) expr()      {}
+func (*FuncCall) expr()       {}
+func (*CaseExpr) expr()       {}
+func (*CastExpr) expr()       {}
+func (*InExpr) expr()         {}
+func (*BetweenExpr) expr()    {}
+func (*IsExpr) expr()         {}
+func (*LikeExpr) expr()       {}
+func (*SubqueryExpr) expr()   {}
+func (*ExistsExpr) expr()     {}
+func (*ParenExpr) expr()      {}
+func (*SubscriptExpr) expr()  {}
+func (*AnyAllExpr) expr()     {}
+func (*ArrayExpr) expr()      {}
+func (*IsDistinctExpr) expr() {}
+func (*RowExpr) expr()        {}

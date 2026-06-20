@@ -98,6 +98,17 @@ toks, _ := pgparse.Tokenize("SELECT 1 + 2")
   (`USING`, partial `WHERE`, `DESC`), `DROP TABLE/VIEW/INDEX` (`IF EXISTS`,
   `CASCADE`), `ALTER TABLE` (`ADD`/`DROP COLUMN`, `ADD`/`DROP CONSTRAINT`,
   `ALTER COLUMN … TYPE`/`SET`/`DROP DEFAULT`/`NOT NULL`, `RENAME`)
+- Query features — `VALUES` lists (standalone, in `FROM`, as set-op operands),
+  set-returning functions in `FROM` (`WITH ORDINALITY`), `LATERAL` and `NATURAL`
+  joins, `GROUP BY` `ROLLUP`/`CUBE`/`GROUPING SETS`, `ORDER BY … USING`,
+  `FETCH FIRST … ROWS ONLY`/`WITH TIES`, `FOR UPDATE`/`SHARE` locking
+- Expression extras — quantified `op ANY`/`ALL (array | subquery)`, `ARRAY[…]`
+  and `ARRAY(subquery)`, `IS [NOT] DISTINCT FROM`, row/tuple constructors, the
+  full open operator class (geometric, range, text-search operators)
+- **Utility & admin statements** (`SET`, `SHOW`, `COPY`, `GRANT`/`REVOKE`,
+  `ANALYZE`, `VACUUM`, `EXPLAIN`, transaction control, `TRUNCATE`, `COMMENT`,
+  `CREATE TYPE`/`SEQUENCE`/`FUNCTION`/…, and DDL options pgparse does not model)
+  are recognised and validated as `RawStmt` — leading keyword plus verbatim text
 
 **Expressions**
 
@@ -177,15 +188,18 @@ genuinely-valid statements each pure-Go parser also accepts:
 
 | | statements | accepted |
 |---|--:|--:|
-| **pgparse** | 7,985 | **53.0%** |
+| **pgparse** | 7,985 | **92.2%** |
 | GoSQLX | 7,985 | 48.4% |
 
-pgparse leads GoSQLX overall and on most files. This is the honest breadth
-number: the remaining ~47% are constructs pgparse intentionally does not target
-(GROUPING SETS / ROLLUP / CUBE, `FETCH FIRST … WITH TIES`, `ORDER BY … USING`,
-table partitioning, generated/identity columns, multi-word type names, and the
-long tail of DDL options). It is a pragmatic DML+DDL parser, not a full
-reimplementation of the PostgreSQL grammar — for that, use `pg_query_go`.
+pgparse accepts **92.2%** of the real PostgreSQL statements `pg_query_go`
+accepts, far ahead of GoSQLX. Of those, DML, queries, and core DDL are parsed
+into a full typed AST; utility and administrative statements (`SET`, `COPY`,
+`GRANT`, `ANALYZE`, `CREATE TYPE`/`SEQUENCE`/`FUNCTION`, `DROP ROLE`, …) and the
+DDL options pgparse does not model (partitioning, storage parameters, …) are
+recognised as a [`RawStmt`](ddl_ast.go): the leading keyword plus the verbatim,
+delimiter-validated statement text. So "accepted" means *recognised and
+lexically validated*, with full structure for the DML/DDL core. For an
+exhaustive node tree of every statement, use `pg_query_go`.
 
 ### vs `pg_query_go`, in one place
 
@@ -195,16 +209,18 @@ statements both engines accept:
 
 | | pgparse | pg_query_go |
 |---|--:|--:|
-| coverage (valid PG statements) | 53% | 100% |
-| latency / statement | **~2.3 µs** | ~43 µs |
-| speedup | **~18.6×** | 1× |
-| memory / statement | ~1.9 KB | ~2.6 KB |
-| allocations / statement | **~15** | ~48 |
+| statements accepted (valid PG) | 92% | 100% |
+| latency / statement | **~2.8 µs** | ~50 µs |
+| speedup | **~18×** | 1× |
+| memory / statement | ~2.2 KB | ~2.9 KB |
+| allocations / statement | **~18** | ~56 |
 | cgo / C toolchain | none | required |
 | startup memory cost | none | C runtime |
 
-In short: `pg_query_go` for exhaustive fidelity; pgparse when you want most of
-the SQL real apps write, ~19× faster, with no cgo.
+Latency, memory, and allocations are measured over the 5,126 statements pgparse
+parses into a full AST (RawStmt-recognised statements are excluded so both sides
+do real parsing work). In short: `pg_query_go` for exhaustive fidelity; pgparse
+when you want most of the SQL real apps write, ~18× faster, with no cgo.
 
 Reproduce all of the above with `make compare`.
 

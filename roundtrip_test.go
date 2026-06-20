@@ -43,6 +43,14 @@ func TestRoundTrip(t *testing.T) {
 			"CREATE UNIQUE INDEX i ON t USING btree (a, b DESC) WHERE a IS NOT NULL",
 			"DROP TABLE IF EXISTS a, b CASCADE",
 			"ALTER TABLE t ADD COLUMN c int, DROP COLUMN d, ALTER COLUMN e TYPE text, RENAME COLUMN f TO g",
+			"VALUES (1, 'a'), (2, 'b')",
+			"SELECT * FROM t WHERE id = ANY (ARRAY[1, 2, 3]) AND a IS DISTINCT FROM b",
+			"SELECT a, sum(b) FROM t GROUP BY ROLLUP (a, b), GROUPING SETS ((a), ())",
+			"SELECT * FROM generate_series(1, 5) WITH ORDINALITY AS g (n, o)",
+			"SELECT * FROM t ORDER BY a USING > LIMIT 5 FOR UPDATE OF t SKIP LOCKED",
+			"SELECT x[1] FROM t WHERE a -> 'k' @> b",
+			"INSERT INTO t (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET a = 2 WHERE t.a < 5",
+			"UPDATE t SET tags[1] = 'x', (a, b) = (1, 2) WHERE id = $1",
 		}
 
 		Convey("When parsed, deparsed, and re-parsed", func() {

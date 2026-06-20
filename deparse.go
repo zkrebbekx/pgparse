@@ -42,6 +42,8 @@ func (d *deparser) node(n Node) {
 		d.drop(x)
 	case *AlterTableStmt:
 		d.alter(x)
+	case *RawStmt:
+		d.ws(x.SQL)
 	case Expr:
 		d.expr(x)
 	case TableExpr:
@@ -80,6 +82,19 @@ func (d *deparser) with(ctes []*CTE) {
 
 func (d *deparser) selectStmt(s *SelectStmt) {
 	d.with(s.With)
+	if s.Values != nil {
+		d.ws("VALUES ")
+		for i, row := range s.Values {
+			if i > 0 {
+				d.ws(", ")
+			}
+			d.ws("(")
+			d.exprList(row)
+			d.ws(")")
+		}
+		d.tail(s)
+		return
+	}
 	if s.SetOp != SetOpNone {
 		d.setOperand(s.Left)
 		switch s.SetOp {
@@ -159,6 +174,18 @@ func (d *deparser) tail(s *SelectStmt) {
 		d.ws(" OFFSET ")
 		d.expr(s.Offset)
 	}
+	for _, lc := range s.Locking {
+		d.ws(" FOR ")
+		d.ws(lc.Strength)
+		if len(lc.Of) > 0 {
+			d.ws(" OF ")
+			d.identList(lc.Of)
+		}
+		if lc.Wait != "" {
+			d.ws(" ")
+			d.ws(lc.Wait)
+		}
+	}
 }
 
 func (d *deparser) selectItems(items []SelectItem) {
@@ -188,6 +215,8 @@ func (d *deparser) insert(s *InsertStmt) {
 		d.ws(")")
 	}
 	switch {
+	case s.DefaultValues:
+		d.ws(" DEFAULT VALUES")
 	case s.Select != nil:
 		d.ws(" ")
 		d.selectStmt(s.Select)
@@ -213,10 +242,17 @@ func (d *deparser) insert(s *InsertStmt) {
 
 func (d *deparser) onConflict(oc *OnConflict) {
 	d.ws(" ON CONFLICT")
-	if len(oc.Targets) > 0 {
+	if oc.Constraint != "" {
+		d.ws(" ON CONSTRAINT ")
+		d.ws(quoteIdent(oc.Constraint))
+	} else if len(oc.Targets) > 0 {
 		d.ws(" (")
 		d.identList(oc.Targets)
 		d.ws(")")
+		if oc.IndexWhere != nil {
+			d.ws(" WHERE ")
+			d.expr(oc.IndexWhere)
+		}
 	}
 	if oc.DoNothing {
 		d.ws(" DO NOTHING")
@@ -224,6 +260,10 @@ func (d *deparser) onConflict(oc *OnConflict) {
 	}
 	d.ws(" DO UPDATE SET ")
 	d.assignments(oc.DoUpdate)
+	if oc.UpdateWhere != nil {
+		d.ws(" WHERE ")
+		d.expr(oc.UpdateWhere)
+	}
 }
 
 func (d *deparser) update(s *UpdateStmt) {
@@ -291,7 +331,11 @@ func (d *deparser) assignments(as []Assignment) {
 			d.ws(")")
 			continue
 		}
-		d.ws(quoteIdent(a.Column))
+		if a.Target != nil {
+			d.expr(a.Target)
+		} else {
+			d.ws(quoteIdent(a.Column))
+		}
 		d.ws(" = ")
 		d.expr(a.Value)
 	}
@@ -327,11 +371,31 @@ func (d *deparser) table(t TableExpr) {
 		}
 	case *JoinExpr:
 		d.join(x)
+	case *FuncTable:
+		if x.Lateral {
+			d.ws("LATERAL ")
+		}
+		d.expr(x.Func)
+		if x.Ordinality {
+			d.ws(" WITH ORDINALITY")
+		}
+		if x.Alias != "" {
+			d.ws(" AS ")
+			d.ws(quoteIdent(x.Alias))
+			if len(x.Columns) > 0 {
+				d.ws(" (")
+				d.identList(x.Columns)
+				d.ws(")")
+			}
+		}
 	}
 }
 
 func (d *deparser) join(j *JoinExpr) {
 	d.table(j.Left)
+	if j.Natural {
+		d.ws(" NATURAL")
+	}
 	switch j.Kind {
 	case JoinInner:
 		d.ws(" JOIN ")
@@ -488,6 +552,51 @@ func (d *deparser) expr(e Expr) {
 			}
 		}
 		d.ws("]")
+	case *AnyAllExpr:
+		d.expr(x.Left)
+		d.ws(" ")
+		d.ws(x.Op)
+		if x.Any {
+			d.ws(" ANY (")
+		} else {
+			d.ws(" ALL (")
+		}
+		if sq, ok := x.Right.(*SubqueryExpr); ok {
+			d.selectStmt(sq.Select)
+		} else {
+			d.expr(x.Right)
+		}
+		d.ws(")")
+	case *ArrayExpr:
+		if x.Subquery != nil {
+			d.ws("ARRAY(")
+			d.selectStmt(x.Subquery)
+			d.ws(")")
+		} else {
+			d.ws("ARRAY[")
+			d.exprList(x.Elements)
+			d.ws("]")
+		}
+	case *IsDistinctExpr:
+		d.expr(x.Left)
+		if x.Not {
+			d.ws(" IS NOT DISTINCT FROM ")
+		} else {
+			d.ws(" IS DISTINCT FROM ")
+		}
+		d.expr(x.Right)
+	case *RowExpr:
+		if x.Explicit {
+			d.ws("ROW")
+		}
+		d.ws("(")
+		d.exprList(x.Elements)
+		d.ws(")")
+	case *GroupingExpr:
+		d.ws(x.Kind)
+		d.ws(" (")
+		d.exprList(x.Args)
+		d.ws(")")
 	}
 }
 
@@ -702,7 +811,10 @@ func (d *deparser) orderList(os []OrderItem) {
 			d.ws(", ")
 		}
 		d.expr(o.Expr)
-		if o.Desc {
+		if o.UsingOp != "" {
+			d.ws(" USING ")
+			d.ws(o.UsingOp)
+		} else if o.Desc {
 			d.ws(" DESC")
 		}
 		if o.NullsSet {
