@@ -103,8 +103,11 @@ func hasModifyingCTE(ctes []*CTE) bool {
 }
 
 // Mutates reports whether any statement in the result changes data or schema
-// (or might, for unmodelled utility statements).
+// (or might, for unmodelled utility statements). A nil result is read-only.
 func (r *ParseResult) Mutates() bool {
+	if r == nil {
+		return false
+	}
 	for _, s := range r.Stmts {
 		if Mutates(s) {
 			return true

@@ -747,7 +747,8 @@ func (p *Parser) parseCallTail(parts []string) (Expr, error) {
 }
 
 // parseVariadicArgs parses a function argument list allowing a VARIADIC marker
-// before any argument and named-argument syntax (name => value).
+// before any argument. Named-argument syntax (name => value) parses as an
+// ordinary "=>" operator expression and needs no special handling here.
 func (p *Parser) parseVariadicArgs() ([]Expr, error) {
 	var list []Expr
 	for {
@@ -755,13 +756,6 @@ func (p *Parser) parseVariadicArgs() ([]Expr, error) {
 		e, err := p.parseExpr()
 		if err != nil {
 			return nil, err
-		}
-		if p.cur().Type == TokenOp && p.cur().Val == "=>" {
-			p.advance()
-			e, err = p.parseExpr()
-			if err != nil {
-				return nil, err
-			}
 		}
 		list = append(list, e)
 		if !p.acceptType(TokenComma) {

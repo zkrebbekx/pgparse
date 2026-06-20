@@ -153,7 +153,8 @@ r2.Mutates()    // false  (r2.ReadOnly() == true)
 admin statements whose effect is not modelled, treated as possibly-writing).
 Data-modifying CTEs (`WITH x AS (UPDATE …) SELECT …`) are detected as writes,
 and `EXPLAIN` is treated as possibly-mutating because `EXPLAIN ANALYZE` executes
-its argument.
+its argument. `SELECT … FOR UPDATE` is classified read-only — it locks rows but
+does not change data (note it still requires a primary, not a read replica).
 
 ## Deparse (AST → SQL)
 

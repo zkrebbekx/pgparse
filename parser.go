@@ -473,8 +473,6 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 		if !p.acceptKw(kwBy) {
 			return nil, p.errf(p.cur(), "expected BY after GROUP")
 		}
-		p.acceptKw(kwAll)
-		p.acceptKw(kwDistinct)
 		s.GroupBy, err = p.parseGroupList()
 		if err != nil {
 			return nil, err
