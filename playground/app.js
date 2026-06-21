@@ -259,7 +259,7 @@ function formatSQL(sql) {
 
     if (c === "(") {
       const w = upWord(i + 1);
-      if (w.startsWith("SELECT") || w.startsWith("WITH") || w.startsWith("VALUES")) {
+      if (/^(SELECT|WITH|VALUES|INSERT|UPDATE|DELETE)\b/.test(w)) {
         stack.push("sub"); trim(); out += " (\n" + IND(indentN());
         i++; while (sql[i] === " ") i++; continue;
       }
@@ -287,7 +287,9 @@ function formatSQL(sql) {
       const jk = matchAt(JOIN_KW);
       if (jk && !out.endsWith("(")) { trim(); out += "\n" + IND(indentN()) + "  " + jk; i += jk.length; continue; }
       const bk = matchAt(BREAK_KW);
-      if (bk && out.trim() !== "" && !out.endsWith("(")) { trim(); out += "\n" + IND(indentN()) + bk; i += bk.length; continue; }
+      // keep "DELETE FROM" together rather than breaking before FROM
+      const afterDelete = bk === "FROM" && /\bDELETE$/.test(out.replace(/\s+$/, ""));
+      if (bk && !afterDelete && out.trim() !== "" && !out.endsWith("(")) { trim(); out += "\n" + IND(indentN()) + bk; i += bk.length; continue; }
     }
     out += c; i++;
   }
