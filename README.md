@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="playground/social.png" alt="pgparse — pure-Go PostgreSQL parser" width="640" />
+  <img src="playground/logo.png" alt="pgparse" width="200" />
 </p>
 
 # pgparse
