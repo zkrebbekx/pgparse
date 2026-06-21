@@ -52,6 +52,17 @@ LEFT JOIN LATERAL (
 ) o ON true
 GROUP BY ROLLUP (c.name)
 ORDER BY 2 DESC NULLS LAST;`,
+  recursive: `-- Recursive CTE with SEARCH (preserved through Deparse, v0.3.2)
+WITH RECURSIVE tree AS (
+  SELECT id, parent_id, name, 1 AS depth
+  FROM nodes
+  WHERE parent_id IS NULL
+  UNION ALL
+  SELECT n.id, n.parent_id, n.name, t.depth + 1
+  FROM nodes n
+  JOIN tree t ON n.parent_id = t.id
+) SEARCH DEPTH FIRST BY name SET ord
+SELECT * FROM tree ORDER BY ord;`,
 };
 const DICE = Object.keys(EXAMPLES);
 
@@ -74,7 +85,13 @@ $("theme").addEventListener("click", () => {
 });
 
 // --- wasm boot ---
-window.onPgparseReady = () => { ready = true; $("loader").classList.add("gone"); run(); };
+window.onPgparseReady = () => {
+  ready = true;
+  $("loader").classList.add("gone");
+  const mb = (typeof pgparseMaxInput === "number") ? Math.round(pgparseMaxInput / (1 << 20)) : 16;
+  $("limit").textContent = mb + " MB";
+  run();
+};
 (function boot() {
   const go = new Go();
   WebAssembly.instantiateStreaming(fetch("pgparse.wasm"), go.importObject)
@@ -141,11 +158,10 @@ function showError(sql, res) {
   setVerdict("bad", "Invalid SQL");
   $("meta").textContent = ""; $("speed").textContent = "— µs";
   let msg = res.error || "syntax error";
-  if (typeof res.offset === "number") {
-    const upto = sql.slice(0, res.offset);
-    const line = upto.split("\n").length;
-    const col = res.offset - upto.lastIndexOf("\n");
-    msg = `line ${line}, col ${col}: ${res.message || res.error}\n${caret(sql, res.offset)}`;
+  // line/col come straight from pgparse's SyntaxError.
+  if (res.line) {
+    msg = `line ${res.line}, column ${res.col}: ${res.message || res.error}`;
+    if (typeof res.offset === "number") msg += "\n" + caret(sql, res.offset);
   }
   const el = $("err"); el.textContent = msg; el.hidden = false;
 }
@@ -208,32 +224,70 @@ function el(tag, cls, text) {
   if (text != null) e.textContent = text; return e;
 }
 
-// --- pretty-printer (depth/quote aware) ---
+// --- pretty-printer ---
+// Stack-based, quote-aware. Subqueries (CTE bodies, IN/EXISTS) and CREATE
+// column lists are broken onto indented lines; clause keywords break at the
+// statement/subquery level (but not inside ordinary expression parentheses, so
+// e.g. OVER (ORDER BY ...) stays inline).
 const BREAK_KW = ["UNION ALL", "UNION", "INTERSECT", "EXCEPT", "FROM", "WHERE",
   "GROUP BY", "HAVING", "WINDOW", "ORDER BY", "LIMIT", "OFFSET", "RETURNING",
-  "ON CONFLICT", "VALUES", "SET"];
+  "ON CONFLICT", "SET"];
 const JOIN_KW = ["LEFT JOIN", "RIGHT JOIN", "FULL JOIN", "CROSS JOIN",
   "INNER JOIN", "NATURAL JOIN", "JOIN"];
+
 function formatSQL(sql) {
-  let out = "", depth = 0, inStr = false, i = 0;
+  const isCreate = /^\s*CREATE\b/i.test(sql);
+  const stack = []; // 'sub' | 'list' | 'expr'
+  const indentN = () => stack.reduce((n, s) => n + (s === "expr" ? 0 : 1), 0);
+  const IND = (n) => "  ".repeat(n);
+  const atStmt = () => stack.length === 0 || stack[stack.length - 1] === "sub";
+  const atList = () => stack.length > 0 && stack[stack.length - 1] === "list";
+  const upWord = (pos) => { let j = pos; while (sql[j] === " ") j++; return sql.slice(j, j + 7).toUpperCase(); };
+  const trim = () => { out = out.replace(/[ \t]+$/, ""); };
   const matchAt = (list) => {
     for (const kw of list) if (sql.startsWith(kw, i)) {
-      const after = sql[i + kw.length];
-      if (after === undefined || after === " " || after === "(") return kw;
+      const a = sql[i + kw.length];
+      if (a === undefined || a === " " || a === "(" || a === ")") return kw;
     }
     return null;
   };
+  let out = "", i = 0, inStr = false;
   while (i < sql.length) {
     const c = sql[i];
     if (inStr) { out += c; if (c === "'") { if (sql[i + 1] === "'") { out += "'"; i += 2; continue; } inStr = false; } i++; continue; }
     if (c === "'") { inStr = true; out += c; i++; continue; }
-    if (c === "(") { depth++; out += c; i++; continue; }
-    if (c === ")") { depth = Math.max(0, depth - 1); out += c; i++; continue; }
-    if (depth === 0 && (out === "" || out.endsWith(" "))) {
+
+    if (c === "(") {
+      const w = upWord(i + 1);
+      if (w.startsWith("SELECT") || w.startsWith("WITH") || w.startsWith("VALUES")) {
+        stack.push("sub"); trim(); out += " (\n" + IND(indentN());
+        i++; while (sql[i] === " ") i++; continue;
+      }
+      if (isCreate && stack.length === 0) {
+        stack.push("list"); trim(); out += " (\n" + IND(indentN());
+        i++; while (sql[i] === " ") i++; continue;
+      }
+      stack.push("expr"); out += "("; i++; continue;
+    }
+    if (c === ")") {
+      const t = stack.pop();
+      if (t === "sub" || t === "list") { trim(); out += "\n" + IND(indentN()) + ")"; }
+      else out += ")";
+      i++; continue;
+    }
+    if (c === "," && atList()) {
+      trim(); out += ",\n" + IND(indentN());
+      i++; while (sql[i] === " ") i++; continue;
+    }
+    if (atStmt() && /\)\s$/.test(out)) {
+      const sk = matchAt(["SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "VALUES"]);
+      if (sk) { trim(); out += "\n" + IND(indentN()) + sk; i += sk.length; continue; }
+    }
+    if (atStmt() && (out === "" || /[ \n(]$/.test(out))) {
       const jk = matchAt(JOIN_KW);
-      if (jk && out !== "") { out = out.replace(/ $/, "") + "\n  " + jk; i += jk.length; continue; }
+      if (jk && !out.endsWith("(")) { trim(); out += "\n" + IND(indentN()) + "  " + jk; i += jk.length; continue; }
       const bk = matchAt(BREAK_KW);
-      if (bk && out !== "") { out = out.replace(/ $/, "") + "\n" + bk; i += bk.length; continue; }
+      if (bk && out.trim() !== "" && !out.endsWith("(")) { trim(); out += "\n" + IND(indentN()) + bk; i += bk.length; continue; }
     }
     out += c; i++;
   }

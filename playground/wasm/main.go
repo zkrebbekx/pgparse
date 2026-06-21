@@ -19,6 +19,7 @@ import (
 func main() {
 	js.Global().Set("pgparseAnalyze", js.FuncOf(analyze))
 	js.Global().Set("pgparseBench", js.FuncOf(bench))
+	js.Global().Set("pgparseMaxInput", js.ValueOf(pgparse.MaxInputBytes))
 	js.Global().Set("pgparseReady", js.ValueOf(true))
 	// Notify the page that wasm is live.
 	if cb := js.Global().Get("onPgparseReady"); cb.Type() == js.TypeFunction {
@@ -38,6 +39,8 @@ func analyze(_ js.Value, args []js.Value) any {
 		out := map[string]any{"ok": false, "error": err.Error()}
 		if se, isSyntax := err.(*pgparse.SyntaxError); isSyntax {
 			out["offset"] = se.Pos
+			out["line"] = se.Line
+			out["col"] = se.Col
 			out["message"] = se.Msg
 		}
 		return out

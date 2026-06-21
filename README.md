@@ -18,6 +18,12 @@ Type any PostgreSQL and watch it parse instantly — AST tree, read/write
 classification, and real µs/parse timing, running 100% client-side (no server,
 your SQL never leaves the tab).
 
+> The **library** (`github.com/zkrebbekx/pgparse`) is **pure Go with no
+> WebAssembly** — nothing you import pulls in a wasm runtime. WebAssembly is used
+> *only* by the separate [`playground/`](playground) module, which compiles the
+> pure-Go library to a `GOOS=js` build so it can run in the browser. Importing
+> pgparse into your Go program involves no wasm and no cgo.
+
 It exists to fill the gap between the two common options:
 
 | Approach | Cost |

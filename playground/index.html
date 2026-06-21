@@ -42,6 +42,7 @@
         <button data-ex="ddl">CREATE TABLE</button>
         <button data-ex="json">JSON ops</button>
         <button data-ex="gnarly">Lateral join</button>
+        <button data-ex="recursive">Recursive CTE</button>
       </div>
       <button data-ex="dice" id="dice" class="randombtn">↺ Random</button>
     </div>
@@ -67,7 +68,10 @@
 </main>
 
 <footer>
-  <span>pure Go → WebAssembly · ~930&nbsp;KB · runs offline · 0 servers · your SQL never leaves this tab</span>
+  <div class="ftxt">
+    <span>The <b>pgparse</b> library is <b>pure Go</b> — no WebAssembly, no cgo. This page compiles it to a WASM build <em>only</em> to run it in your browser; importing the library pulls in neither.</span>
+    <span class="fmeta">~930&nbsp;KB · runs offline · input guard <span id="limit">—</span> · your SQL never leaves this tab</span>
+  </div>
   <a href="https://github.com/zkrebbekx/pgparse" target="_blank" rel="noopener">github.com/zkrebbekx/pgparse ↗</a>
 </footer>
 
