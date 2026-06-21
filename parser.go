@@ -13,7 +13,26 @@ type Parser struct {
 	toks      []Token
 	pos       int
 	stmtStart int // token index where the current statement began
+	depth     int // current recursion depth (guards against stack overflow)
 }
+
+// maxNestingDepth bounds recursive descent so that pathologically nested input
+// (e.g. a million parentheses) returns an error instead of overflowing the
+// stack — a crash that recover() cannot catch. Real SQL nests only a few levels
+// deep, so the limit is generous.
+const maxNestingDepth = 1000
+
+// enter increases the recursion depth, returning an error if the nesting limit
+// is exceeded. Callers must pair it with a deferred leave.
+func (p *Parser) enter() error {
+	p.depth++
+	if p.depth > maxNestingDepth {
+		return &SyntaxError{Pos: p.cur().Pos, Msg: "maximum nesting depth exceeded"}
+	}
+	return nil
+}
+
+func (p *Parser) leave() { p.depth-- }
 
 // newParser constructs a Parser over an already-lexed token slice.
 func newParser(src string, toks []Token) *Parser { return &Parser{src: src, toks: toks} }
@@ -297,6 +316,10 @@ func (p *Parser) isColumnListAhead() bool {
 // precedence (INTERSECT binds tighter than UNION/EXCEPT) followed by a single
 // trailing ORDER BY / LIMIT / OFFSET that applies to the whole expression.
 func (p *Parser) parseSelect() (*SelectStmt, error) {
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+	defer p.leave()
 	// A WITH clause may lead a select expression anywhere it appears (subqueries,
 	// set-op operands, LATERAL items), not only at statement top level.
 	var with []*CTE
@@ -747,6 +770,10 @@ func (p *Parser) parseFromList() ([]TableExpr, error) {
 
 // parseTableExpr parses a table primary followed by any join chain.
 func (p *Parser) parseTableExpr() (TableExpr, error) {
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+	defer p.leave()
 	left, err := p.parseTablePrimary()
 	if err != nil {
 		return nil, err

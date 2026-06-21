@@ -7,8 +7,20 @@ import (
 
 // parseExpr is the expression entry point. Precedence is encoded by the call
 // chain: OR → AND → NOT → comparison → additive → multiplicative → unary →
-// postfix → primary (low to high binding).
-func (p *Parser) parseExpr() (Expr, error) { return p.parseOr() }
+// postfix → primary (low to high binding). A depth guard prevents stack
+// overflow on pathologically nested input.
+func (p *Parser) parseExpr() (Expr, error) {
+	// Manual depth accounting (no defer) keeps this hot path cheap; on a panic
+	// the whole Parser is discarded, so a missed decrement is harmless.
+	p.depth++
+	if p.depth > maxNestingDepth {
+		p.depth--
+		return nil, &SyntaxError{Pos: p.cur().Pos, Msg: "maximum nesting depth exceeded"}
+	}
+	e, err := p.parseOr()
+	p.depth--
+	return e, err
+}
 
 func (p *Parser) parseOr() (Expr, error) {
 	left, err := p.parseAnd()

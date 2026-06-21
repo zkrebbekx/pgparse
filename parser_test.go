@@ -1,6 +1,7 @@
 package pgparse
 
 import (
+	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -457,6 +458,28 @@ func TestDML(t *testing.T) {
 				del := s.(*DeleteStmt)
 				So(del.Table.Name, ShouldEqual, "logs")
 				So(del.Where, ShouldNotBeNil)
+			})
+		})
+	})
+}
+
+func TestDepthGuard(t *testing.T) {
+	Convey("Given pathologically nested input", t, func() {
+		deep := "SELECT " + strings.Repeat("(", 200000) + "1" + strings.Repeat(")", 200000)
+		Convey("When parsed", func() {
+			_, err := Parse(deep)
+			Convey("Then it returns an error instead of overflowing the stack", func() {
+				So(err, ShouldNotBeNil)
+			})
+		})
+	})
+
+	Convey("Given a reasonably nested expression", t, func() {
+		ok := "SELECT " + strings.Repeat("(", 50) + "1 + 2" + strings.Repeat(")", 50)
+		Convey("When parsed", func() {
+			_, err := Parse(ok)
+			Convey("Then it parses normally (within the limit)", func() {
+				So(err, ShouldBeNil)
 			})
 		})
 	})

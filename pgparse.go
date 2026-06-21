@@ -26,9 +26,12 @@ type ParseResult struct {
 }
 
 // Parse lexes and parses a SQL string containing one or more semicolon-
-// separated statements. It returns a *SyntaxError on the first failure. As a
-// safety net, any internal panic is recovered and returned as an error so that
-// malformed input can never crash a caller.
+// separated statements. It returns a *SyntaxError on the first failure.
+//
+// Parse is safe on untrusted input: any internal panic is recovered and
+// returned as an error, and a recursion-depth limit rejects pathologically
+// nested input (which would otherwise overflow the stack — a crash recover
+// cannot catch) with an ordinary error.
 func Parse(sql string) (res *ParseResult, err error) {
 	defer func() {
 		if r := recover(); r != nil {
