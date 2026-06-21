@@ -224,9 +224,13 @@ func (p *Parser) parseWith() ([]*CTE, error) {
 			return nil, err
 		}
 		// Optional SEARCH / CYCLE clauses on a recursive CTE — recognised and
-		// consumed (not modelled).
+		// preserved verbatim (not modelled), so deparse stays faithful.
+		auxStart := p.cur().Pos
 		if err := p.parseSearchCycle(); err != nil {
 			return nil, err
+		}
+		if end := p.cur().Pos; end > auxStart {
+			cte.Aux = strings.TrimSpace(p.src[auxStart:end])
 		}
 		ctes = append(ctes, cte)
 		if !p.acceptType(TokenComma) {

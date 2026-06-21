@@ -150,8 +150,7 @@ pattern-match, not a protobuf mirror.
 ## Read vs. write classification
 
 `Mutates` answers a common question in one call: does this SQL change data or
-schema? It is a conservative guard — useful for read-replica routing or a
-read-only permission gate — returning `true` whenever a statement could write.
+schema? Useful as a routing or observability **hint**.
 
 ```go
 res, _ := pgparse.Parse("UPDATE accounts SET balance = balance - 10 WHERE id = $1")
@@ -160,6 +159,13 @@ res.Mutates()   // true
 r2, _ := pgparse.Parse("SELECT * FROM accounts WHERE id = $1")
 r2.Mutates()    // false  (r2.ReadOnly() == true)
 ```
+
+> **Not a security boundary.** Classification is purely syntactic, so it cannot
+> see side effects inside functions — `SELECT nextval('s')` and
+> `SELECT writes_rows()` are reported read-only because they *look* like reads.
+> pgparse also parses a subset of PostgreSQL and is not the authoritative parser.
+> Use `Mutates` as a hint; gate real writes with server-side controls (read-only
+> roles, `default_transaction_read_only`, a read-replica connection).
 
 `Classify(stmt)` gives the finer category — `ClassReadOnly`, `ClassWrite`
 (INSERT/UPDATE/DELETE, TRUNCATE, MERGE, data-modifying CTEs, `SELECT … INTO`),

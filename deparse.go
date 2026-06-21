@@ -76,6 +76,10 @@ func (d *deparser) with(ctes []*CTE) {
 		d.ws(" AS (")
 		d.node(c.Stmt)
 		d.ws(")")
+		if c.Aux != "" {
+			d.ws(" ")
+			d.ws(c.Aux)
+		}
 	}
 	d.ws(" ")
 }
@@ -794,6 +798,10 @@ func (d *deparser) frame(f *WindowFrame) {
 		d.frameBound(*f.End)
 	} else {
 		d.frameBound(f.Start)
+	}
+	if f.Exclude != "" {
+		d.ws(" ")
+		d.ws(f.Exclude)
 	}
 }
 

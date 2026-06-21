@@ -76,6 +76,7 @@ type CTE struct {
 	Columns   []string // optional explicit column list
 	Recursive bool
 	Stmt      Stmt
+	Aux       string // verbatim SEARCH/CYCLE clause text, preserved but not modelled
 }
 
 // SelectItem is one entry in a projection list.
@@ -249,9 +250,10 @@ type WindowDef struct {
 
 // WindowFrame is a frame clause: ROWS|RANGE|GROUPS Start [BETWEEN Start AND End].
 type WindowFrame struct {
-	Mode  string      // "ROWS", "RANGE", or "GROUPS"
-	Start FrameBound  // frame start (or the sole bound when End is nil)
-	End   *FrameBound // frame end when BETWEEN ... AND ... is used
+	Mode    string      // "ROWS", "RANGE", or "GROUPS"
+	Start   FrameBound  // frame start (or the sole bound when End is nil)
+	End     *FrameBound // frame end when BETWEEN ... AND ... is used
+	Exclude string      // verbatim EXCLUDE clause, e.g. "EXCLUDE TIES" ("" when absent)
 }
 
 // FrameBound is one frame endpoint.

@@ -868,8 +868,9 @@ func (p *Parser) parseFrame(mode string) (*WindowFrame, error) {
 		}
 		f.Start = start
 	}
-	// Optional EXCLUDE clause — consume and ignore the variants we don't model.
+	// Optional EXCLUDE clause — preserved verbatim so deparse stays faithful.
 	if identIs(p.cur(), "exclude") {
+		start := p.cur().Pos
 		p.advance()
 		switch {
 		case identIs(p.cur(), "current"):
@@ -883,6 +884,7 @@ func (p *Parser) parseFrame(mode string) (*WindowFrame, error) {
 		case identIs(p.cur(), "ties"), identIs(p.cur(), "others"), p.isKw(kwGroup):
 			p.advance()
 		}
+		f.Exclude = strings.TrimSpace(p.src[start:p.cur().Pos])
 	}
 	return f, nil
 }

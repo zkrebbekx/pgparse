@@ -56,6 +56,8 @@ func TestRoundTrip(t *testing.T) {
 			`SELECT max(a) OVER w, sum(b) FROM t WINDOW w AS (PARTITION BY c ORDER BY d)`,
 			"SELECT * FROM (WITH c AS (SELECT 1 AS n) SELECT n FROM c) s",
 			"SELECT a, sum(b) FROM t GROUP BY CUBE (a) ORDER BY a USING <",
+			"WITH RECURSIVE t (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t) SEARCH DEPTH FIRST BY n SET ord SELECT * FROM t",
+			"SELECT sum(x) OVER (ORDER BY t ROWS CURRENT ROW EXCLUDE TIES) FROM s",
 		}
 
 		Convey("When parsed, deparsed, and re-parsed", func() {

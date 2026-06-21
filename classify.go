@@ -85,13 +85,21 @@ func Classify(s Stmt) StmtClass {
 	return ClassUtility
 }
 
-// Mutates reports whether the statement changes data or schema, or — for
-// utility/admin statements whose effect pgparse does not model — might. Pure
-// reads return false; everything that could write or alter returns true.
+// Mutates reports whether the statement changes data or schema based on its
+// syntax. Pure reads return false; INSERT/UPDATE/DELETE, DDL, and unmodelled
+// utility statements return true.
 //
-// This is intended as a conservative guard (e.g. for read-replica routing or a
-// read-only permission check): when in doubt it returns true. Note that EXPLAIN
-// is treated as possibly-mutating because EXPLAIN ANALYZE executes its argument.
+// It is a best-effort hint, not a security boundary. Classification is purely
+// syntactic, so it cannot see side effects hidden inside functions: a SELECT
+// that calls a volatile or writing function — for example SELECT nextval('s')
+// or SELECT my_function_that_writes() — is reported read-only. Likewise pgparse
+// parses a subset of PostgreSQL and is not the authoritative parser, so its view
+// of a statement can differ from how the server executes it.
+//
+// Do not rely on Mutates alone to gate writes or route traffic. Pair it with
+// server-side controls (read-only roles, default_transaction_read_only, a
+// read-only replica connection). EXPLAIN is treated as possibly-mutating because
+// EXPLAIN ANALYZE executes its argument.
 func Mutates(s Stmt) bool {
 	switch Classify(s) {
 	case ClassReadOnly, ClassTransaction:
