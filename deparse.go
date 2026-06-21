@@ -12,6 +12,9 @@ import (
 // Explicit grouping is preserved through ParenExpr nodes, so binary and unary
 // expressions are emitted without adding parentheses; this keeps Deparse
 // idempotent (deparse∘parse∘deparse == deparse∘parse).
+//
+// Deparse assumes an acyclic tree, as produced by Parse; it does not guard
+// against cycles in a hand-constructed AST.
 func Deparse(n Node) string {
 	var d deparser
 	d.node(n)

@@ -229,7 +229,7 @@ func (l *Lexer) scanNumber(start int) Token {
 }
 
 // scanIdent reads an unquoted identifier and resolves it against the keyword
-// table. Keyword folding is case-insensitive without allocating when the source
+// table. keyword folding is case-insensitive without allocating when the source
 // is already lowercase.
 func (l *Lexer) scanIdent(start int) Token {
 	for l.pos < len(l.src) && isIdentPart(l.src[l.pos]) {
@@ -241,7 +241,7 @@ func (l *Lexer) scanIdent(start int) Token {
 		key = strings.ToLower(raw)
 	}
 	if kw := lookupKeyword(key); kw != kwNone {
-		return Token{Type: TokenKeyword, Val: raw, Kw: kw, Pos: start}
+		return Token{Type: TokenKeyword, Val: raw, kw: kw, Pos: start}
 	}
 	return Token{Type: TokenIdent, Val: raw, Pos: start}
 }

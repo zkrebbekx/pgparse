@@ -55,7 +55,7 @@ func identIs(t Token, s string) bool {
 // parseSpecialArgs parses the keyword-delimited argument grammar of the SQL
 // special functions, populating fc.Args. The caller has already consumed '('
 // and is responsible for the closing ')'.
-func (p *Parser) parseSpecialArgs(fc *FuncCall) error {
+func (p *parser) parseSpecialArgs(fc *FuncCall) error {
 	switch strings.ToLower(fc.Name) {
 	case "extract":
 		// extract(field FROM source)

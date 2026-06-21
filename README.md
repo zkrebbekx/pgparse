@@ -148,10 +148,24 @@ toks, _ := pgparse.Tokenize("SELECT 1 + 2")
 **Out of scope (use `pg_query_go`):** `MERGE`, `GRANT`/`REVOKE`, PL/pgSQL
 bodies, `COPY`, multi-word type names (`timestamp with time zone`,
 `double precision` — use `timestamptz` etc.), the long tail of `ALTER`
-sub-commands, and exact `pg_query` node-tree compatibility.
+sub-commands, and exact `pg_query` node-tree compatibility. Operators are lexed
+by maximal munch, so adjacent operator characters without a space (e.g. `a=-1`)
+are read as one operator (`=-`); write `a = -1`.
 
 The AST is idiomatic typed Go (see [`ast.go`](ast.go)) — ergonomic to walk and
-pattern-match, not a protobuf mirror.
+pattern-match, not a protobuf mirror. `Walk` traverses it in pre-order:
+
+```go
+stmt, _ := pgparse.ParseOne("SELECT * FROM a JOIN b ON a.id = b.a")
+var tables []string
+pgparse.Walk(stmt, func(n pgparse.Node) bool {
+        if t, ok := n.(*pgparse.TableName); ok {
+                tables = append(tables, t.Name)
+        }
+        return true // return false to skip a node's children
+})
+// tables == ["a", "b"]
+```
 
 ## Read vs. write classification
 
@@ -393,14 +407,15 @@ the top-level functions (`Parse`, `ParseOne`, `Tokenize`, `Deparse`, `Classify`,
 `Mutates`) and the exported AST types in [`ast.go`](ast.go) / DDL nodes — is the
 compatibility surface.
 
-While on `v0.x`, the API is stable in practice but not yet frozen; **pin a
-version** and check the [CHANGELOG](CHANGELOG.md) before upgrading. After `v1.0`:
+As of `v1.0.0` the public API is covered by SemVer:
 
 - No breaking changes to the public API within a major version. New AST fields
   and new statement/expression kinds may be **added** (so always include a
   default case when type-switching over `Stmt`/`Expr`); fields and types are not
   removed or renamed except in a new major version.
-- `Parse` continues to never panic and to bound recursion and input size.
+- `Parse` never panics and bounds recursion and input size.
+
+Check the [CHANGELOG](CHANGELOG.md) before upgrading.
 
 Safety on untrusted input and the limits of `Mutates`/`Classify` are described in
 [SECURITY.md](SECURITY.md).

@@ -68,7 +68,7 @@ func Classify(s Stmt) StmtClass {
 	case *CreateTableStmt, *CreateViewStmt, *CreateIndexStmt, *DropStmt, *AlterTableStmt:
 		return ClassDDL
 	case *RawStmt:
-		kw := strings.ToLower(x.Keyword)
+		kw := strings.ToLower(x.keyword)
 		switch {
 		case rawTxn[kw]:
 			return ClassTransaction

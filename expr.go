@@ -9,9 +9,9 @@ import (
 // chain: OR → AND → NOT → comparison → additive → multiplicative → unary →
 // postfix → primary (low to high binding). A depth guard prevents stack
 // overflow on pathologically nested input.
-func (p *Parser) parseExpr() (Expr, error) {
+func (p *parser) parseExpr() (Expr, error) {
 	// Manual depth accounting (no defer) keeps this hot path cheap; on a panic
-	// the whole Parser is discarded, so a missed decrement is harmless.
+	// the whole parser is discarded, so a missed decrement is harmless.
 	p.depth++
 	if p.depth > maxNestingDepth {
 		p.depth--
@@ -22,7 +22,7 @@ func (p *Parser) parseExpr() (Expr, error) {
 	return e, err
 }
 
-func (p *Parser) parseOr() (Expr, error) {
+func (p *parser) parseOr() (Expr, error) {
 	left, err := p.parseAnd()
 	if err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ func (p *Parser) parseOr() (Expr, error) {
 	return left, nil
 }
 
-func (p *Parser) parseAnd() (Expr, error) {
+func (p *parser) parseAnd() (Expr, error) {
 	left, err := p.parseNot()
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (p *Parser) parseAnd() (Expr, error) {
 	return left, nil
 }
 
-func (p *Parser) parseNot() (Expr, error) {
+func (p *parser) parseNot() (Expr, error) {
 	if p.isKw(kwNot) {
 		p.advance()
 		operand, err := p.parseNot()
@@ -69,7 +69,7 @@ var compOps = map[TokenType]string{
 	TokenGt: ">", TokenGte: ">=",
 }
 
-func (p *Parser) parseComparison() (Expr, error) {
+func (p *parser) parseComparison() (Expr, error) {
 	left, err := p.parseOtherOp()
 	if err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ func (p *Parser) parseComparison() (Expr, error) {
 		not := false
 		if p.isKw(kwNot) {
 			n := p.peekAt(1)
-			if n.Type == TokenKeyword && (n.Kw == kwIn || n.Kw == kwBetween || n.Kw == kwLike || n.Kw == kwILike) {
+			if n.Type == TokenKeyword && (n.kw == kwIn || n.kw == kwBetween || n.kw == kwLike || n.kw == kwILike) {
 				p.advance()
 				not = true
 			} else {
@@ -133,7 +133,7 @@ func (p *Parser) parseComparison() (Expr, error) {
 	return left, nil
 }
 
-func (p *Parser) parseIsTail(left Expr) (Expr, error) {
+func (p *parser) parseIsTail(left Expr) (Expr, error) {
 	p.advance() // IS
 	not := p.acceptKw(kwNot)
 	switch {
@@ -157,7 +157,7 @@ func (p *Parser) parseIsTail(left Expr) (Expr, error) {
 }
 
 // parseArray parses ARRAY[...] or ARRAY(subquery), the ARRAY keyword consumed.
-func (p *Parser) parseArray() (Expr, error) {
+func (p *parser) parseArray() (Expr, error) {
 	p.advance() // ARRAY
 	if p.cur().Type == TokenLBracket {
 		return p.parseArrayBrackets()
@@ -177,7 +177,7 @@ func (p *Parser) parseArray() (Expr, error) {
 
 // parseArrayBrackets parses a "[...]" array literal whose elements may be nested
 // "[...]" sub-arrays (multidimensional arrays).
-func (p *Parser) parseArrayBrackets() (Expr, error) {
+func (p *parser) parseArrayBrackets() (Expr, error) {
 	p.advance() // [
 	a := &ArrayExpr{}
 	if p.cur().Type != TokenRBracket {
@@ -204,7 +204,7 @@ func (p *Parser) parseArrayBrackets() (Expr, error) {
 	return a, nil
 }
 
-func (p *Parser) parseInTail(left Expr, not bool) (Expr, error) {
+func (p *parser) parseInTail(left Expr, not bool) (Expr, error) {
 	p.advance() // IN
 	if _, err := p.expectType(TokenLParen, "'(' after IN"); err != nil {
 		return nil, err
@@ -229,7 +229,7 @@ func (p *Parser) parseInTail(left Expr, not bool) (Expr, error) {
 	return in, nil
 }
 
-func (p *Parser) parseBetweenTail(left Expr, not bool) (Expr, error) {
+func (p *parser) parseBetweenTail(left Expr, not bool) (Expr, error) {
 	p.advance() // BETWEEN
 	low, err := p.parseOtherOp()
 	if err != nil {
@@ -245,7 +245,7 @@ func (p *Parser) parseBetweenTail(left Expr, not bool) (Expr, error) {
 	return &BetweenExpr{Expr: left, Not: not, Low: low, High: high}, nil
 }
 
-func (p *Parser) parseLikeTail(left Expr, not, ilike bool) (Expr, error) {
+func (p *parser) parseLikeTail(left Expr, not, ilike bool) (Expr, error) {
 	pat, err := p.parseOtherOp()
 	if err != nil {
 		return nil, err
@@ -256,7 +256,7 @@ func (p *Parser) parseLikeTail(left Expr, not, ilike bool) (Expr, error) {
 // parseOtherOp handles PostgreSQL's open operator class (JSON/array/bitwise/
 // regex operators plus ||), which binds tighter than comparison but looser than
 // arithmetic. All such operators are left-associative.
-func (p *Parser) parseOtherOp() (Expr, error) {
+func (p *parser) parseOtherOp() (Expr, error) {
 	left, err := p.parseAdditive()
 	if err != nil {
 		return nil, err
@@ -281,7 +281,7 @@ func (p *Parser) parseOtherOp() (Expr, error) {
 
 // parseAnyAll parses the right-hand "ANY/SOME/ALL (array | subquery)" of a
 // quantified comparison, the operator already consumed.
-func (p *Parser) parseAnyAll(op string, left Expr) (Expr, error) {
+func (p *parser) parseAnyAll(op string, left Expr) (Expr, error) {
 	any := p.isKw(kwAny) || p.isKw(kwSome)
 	p.advance() // ANY/SOME/ALL
 	if _, err := p.expectType(TokenLParen, "'(' after ANY/ALL"); err != nil {
@@ -307,7 +307,7 @@ func (p *Parser) parseAnyAll(op string, left Expr) (Expr, error) {
 	return &AnyAllExpr{Op: op, Any: any, Left: left, Right: right}, nil
 }
 
-func (p *Parser) parseAdditive() (Expr, error) {
+func (p *parser) parseAdditive() (Expr, error) {
 	left, err := p.parseMultiplicative()
 	if err != nil {
 		return nil, err
@@ -331,7 +331,7 @@ func (p *Parser) parseAdditive() (Expr, error) {
 	}
 }
 
-func (p *Parser) parseMultiplicative() (Expr, error) {
+func (p *parser) parseMultiplicative() (Expr, error) {
 	left, err := p.parseUnary()
 	if err != nil {
 		return nil, err
@@ -359,7 +359,7 @@ func (p *Parser) parseMultiplicative() (Expr, error) {
 	}
 }
 
-func (p *Parser) parseUnary() (Expr, error) {
+func (p *parser) parseUnary() (Expr, error) {
 	switch {
 	case p.cur().Type == TokenMinus:
 		p.advance()
@@ -386,7 +386,7 @@ func (p *Parser) parseUnary() (Expr, error) {
 
 // parsePostfix handles trailing :: casts and array subscripts a[i] / a[lo:hi]
 // (both left-associative, highest binding).
-func (p *Parser) parsePostfix() (Expr, error) {
+func (p *parser) parsePostfix() (Expr, error) {
 	e, err := p.parsePrimary()
 	if err != nil {
 		return nil, err
@@ -422,7 +422,7 @@ func (p *Parser) parsePostfix() (Expr, error) {
 
 // parseCollationName reads a (possibly schema-qualified, possibly quoted)
 // collation name, returning it as written.
-func (p *Parser) parseCollationName() (string, error) {
+func (p *parser) parseCollationName() (string, error) {
 	t := p.cur()
 	if t.Type != TokenIdent {
 		return "", p.errf(t, "expected a collation name")
@@ -438,7 +438,7 @@ func (p *Parser) parseCollationName() (string, error) {
 
 // parseSubscript parses one [i] or [lo:hi] suffix. Either slice bound may be
 // omitted (a[:hi], a[lo:]).
-func (p *Parser) parseSubscript(base Expr) (Expr, error) {
+func (p *parser) parseSubscript(base Expr) (Expr, error) {
 	p.advance() // [
 	sub := &SubscriptExpr{Base: base}
 	if p.cur().Type != TokenColon && p.cur().Type != TokenRBracket {
@@ -464,7 +464,7 @@ func (p *Parser) parseSubscript(base Expr) (Expr, error) {
 	return sub, nil
 }
 
-func (p *Parser) parsePrimary() (Expr, error) {
+func (p *parser) parsePrimary() (Expr, error) {
 	t := p.cur()
 	switch t.Type {
 	case TokenNumber:
@@ -490,7 +490,7 @@ func (p *Parser) parsePrimary() (Expr, error) {
 	return nil, p.errf(t, "unexpected token in expression")
 }
 
-func (p *Parser) parseParenOrSubquery() (Expr, error) {
+func (p *parser) parseParenOrSubquery() (Expr, error) {
 	p.advance() // (
 	if p.isKw(kwSelect) || p.isKw(kwWith) {
 		sub, err := p.parseSelect()
@@ -527,8 +527,8 @@ func (p *Parser) parseParenOrSubquery() (Expr, error) {
 	return &ParenExpr{Expr: inner}, nil
 }
 
-func (p *Parser) parseKeywordPrimary(t Token) (Expr, error) {
-	switch t.Kw {
+func (p *parser) parseKeywordPrimary(t Token) (Expr, error) {
+	switch t.kw {
 	case kwNull:
 		p.advance()
 		return &Literal{Kind: LitNull, Val: "NULL"}, nil
@@ -574,7 +574,7 @@ func (p *Parser) parseKeywordPrimary(t Token) (Expr, error) {
 }
 
 // parseCase parses both simple and searched CASE expressions.
-func (p *Parser) parseCase() (Expr, error) {
+func (p *parser) parseCase() (Expr, error) {
 	p.advance() // CASE
 	ce := &CaseExpr{}
 	if !p.isKw(kwWhen) {
@@ -611,7 +611,7 @@ func (p *Parser) parseCase() (Expr, error) {
 	return ce, nil
 }
 
-func (p *Parser) parseCastFunc() (Expr, error) {
+func (p *parser) parseCastFunc() (Expr, error) {
 	p.advance() // CAST
 	if _, err := p.expectType(TokenLParen, "'(' after CAST"); err != nil {
 		return nil, err
@@ -634,7 +634,7 @@ func (p *Parser) parseCastFunc() (Expr, error) {
 }
 
 // parseNameOrCall parses a qualified name, a "table.*", or a function call.
-func (p *Parser) parseNameOrCall() (Expr, error) {
+func (p *parser) parseNameOrCall() (Expr, error) {
 	parts := []string{identText(p.advance())}
 	for p.cur().Type == TokenDot {
 		p.advance()
@@ -664,7 +664,7 @@ func (p *Parser) parseNameOrCall() (Expr, error) {
 }
 
 // parseCallTail parses the "( ... )" of a function call, given its name parts.
-func (p *Parser) parseCallTail(parts []string) (Expr, error) {
+func (p *parser) parseCallTail(parts []string) (Expr, error) {
 	fc := &FuncCall{}
 	switch len(parts) {
 	case 1:
@@ -761,7 +761,7 @@ func (p *Parser) parseCallTail(parts []string) (Expr, error) {
 // parseVariadicArgs parses a function argument list allowing a VARIADIC marker
 // before any argument. Named-argument syntax (name => value) parses as an
 // ordinary "=>" operator expression and needs no special handling here.
-func (p *Parser) parseVariadicArgs() ([]Expr, error) {
+func (p *parser) parseVariadicArgs() ([]Expr, error) {
 	var list []Expr
 	for {
 		p.acceptWord("variadic")
@@ -777,7 +777,7 @@ func (p *Parser) parseVariadicArgs() ([]Expr, error) {
 	return list, nil
 }
 
-func (p *Parser) parseWindowSpec() (*WindowDef, error) {
+func (p *parser) parseWindowSpec() (*WindowDef, error) {
 	// OVER window_name — a reference to a named WINDOW definition.
 	if p.cur().Type == TokenIdent {
 		return &WindowDef{Ref: identText(p.advance())}, nil
@@ -846,7 +846,7 @@ func frameMode(t Token) (string, bool) {
 
 // parseFrame parses the body of a frame clause after the mode word, supporting
 // both the single-bound form and BETWEEN start AND end.
-func (p *Parser) parseFrame(mode string) (*WindowFrame, error) {
+func (p *parser) parseFrame(mode string) (*WindowFrame, error) {
 	f := &WindowFrame{Mode: mode}
 	if p.acceptKw(kwBetween) {
 		start, err := p.parseFrameBound()
@@ -891,7 +891,7 @@ func (p *Parser) parseFrame(mode string) (*WindowFrame, error) {
 
 // parseFrameBound parses one frame endpoint: UNBOUNDED PRECEDING/FOLLOWING,
 // CURRENT ROW, or "N PRECEDING/FOLLOWING".
-func (p *Parser) parseFrameBound() (FrameBound, error) {
+func (p *parser) parseFrameBound() (FrameBound, error) {
 	if identIs(p.cur(), "unbounded") {
 		p.advance()
 		if identIs(p.cur(), "preceding") {
@@ -930,7 +930,7 @@ func (p *Parser) parseFrameBound() (FrameBound, error) {
 
 // parseTypeName parses a single-token type name plus optional precision and
 // array suffix, e.g. int, varchar(255), numeric(10,2), text[].
-func (p *Parser) parseTypeName() (string, error) {
+func (p *parser) parseTypeName() (string, error) {
 	t := p.cur()
 	if t.Type != TokenIdent && t.Type != TokenKeyword {
 		return "", p.errf(t, "expected a type name")

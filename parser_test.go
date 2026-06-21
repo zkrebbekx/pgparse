@@ -361,7 +361,7 @@ func TestExtendedFeatures(t *testing.T) {
 			s, err := ParseOne("SET search_path TO public, app")
 			So(err, ShouldBeNil)
 			rs := s.(*RawStmt)
-			So(rs.Keyword, ShouldEqual, "SET")
+			So(rs.keyword, ShouldEqual, "SET")
 			So(rs.SQL, ShouldStartWith, "SET search_path")
 		})
 

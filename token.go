@@ -48,15 +48,15 @@ const (
 type Token struct {
 	Type TokenType
 	Val  string  // exact source text of the token
-	Kw   Keyword // non-zero when Type == TokenKeyword
+	kw   keyword // non-zero when Type == TokenKeyword
 	Pos  int     // byte offset into the source
 }
 
-// Keyword is an interned SQL keyword id. Zero means "not a keyword".
-type Keyword uint8
+// keyword is an interned SQL keyword id. Zero means "not a keyword".
+type keyword uint8
 
 const (
-	kwNone Keyword = iota
+	kwNone keyword = iota
 	kwSelect
 	kwFrom
 	kwWhere
@@ -130,7 +130,7 @@ const (
 
 // keywords maps lowercase keyword text to its interned id. Lookup is the only
 // allocation-free way to distinguish keywords from identifiers.
-var keywords = map[string]Keyword{
+var keywords = map[string]keyword{
 	"select": kwSelect, "from": kwFrom, "where": kwWhere, "group": kwGroup,
 	"by": kwBy, "having": kwHaving, "order": kwOrder, "limit": kwLimit,
 	"offset": kwOffset, "as": kwAs, "and": kwAnd, "or": kwOr, "not": kwNot,
@@ -152,4 +152,4 @@ var keywords = map[string]Keyword{
 }
 
 // lookupKeyword returns the keyword id for a lowercase identifier, or kwNone.
-func lookupKeyword(lower string) Keyword { return keywords[lower] }
+func lookupKeyword(lower string) keyword { return keywords[lower] }

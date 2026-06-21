@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-06-21
+
+First stable release. The public API is now covered by Semantic Versioning.
+
+### Added
+- `Walk(Node, func(Node) bool)` — depth-first pre-order AST traversal (returning
+  false skips a node's children).
+- Runnable godoc examples for `Parse`, `Deparse`, `Mutates`, and `Walk`.
+- `CONTRIBUTING.md`.
+
+### Changed
+- **API freeze for 1.0.** Unexported internal types that had no usable public
+  surface: `Parser`, `Keyword`, and the `Token.Kw` field. The public API is
+  `Parse` / `ParseOne` / `Tokenize` / `Deparse` / `Walk` / `Classify` /
+  `Mutates`, the AST node types, `Lexer` / `Token`, `SyntaxError`, and
+  `MaxInputBytes`.
+- Documented that `Parse` is safe for concurrent use and that `Deparse` assumes
+  an acyclic tree.
+
 ## [0.3.2] — 2026-06-21
 
 ### Fixed
@@ -56,7 +75,8 @@ All notable changes to this project are documented here. The format is based on
   subqueries, set operations, window functions, the scalar expression grammar,
   and an idiomatic typed AST. No cgo, no WebAssembly runtime.
 
-[Unreleased]: https://github.com/zkrebbekx/pgparse/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/zkrebbekx/pgparse/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/zkrebbekx/pgparse/compare/v0.3.2...v1.0.0
 [0.3.2]: https://github.com/zkrebbekx/pgparse/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/zkrebbekx/pgparse/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/zkrebbekx/pgparse/compare/v0.2.0...v0.3.0

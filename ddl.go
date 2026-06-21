@@ -11,12 +11,12 @@ import "strings"
 // matched positionally by text instead.
 // ---------------------------------------------------------------------------
 
-func (p *Parser) isWord(s string) bool {
+func (p *parser) isWord(s string) bool {
 	t := p.cur()
 	return (t.Type == TokenIdent || t.Type == TokenKeyword) && strings.EqualFold(t.Val, s)
 }
 
-func (p *Parser) acceptWord(s string) bool {
+func (p *parser) acceptWord(s string) bool {
 	if p.isWord(s) {
 		p.advance()
 		return true
@@ -24,7 +24,7 @@ func (p *Parser) acceptWord(s string) bool {
 	return false
 }
 
-func (p *Parser) expectWord(s string) error {
+func (p *parser) expectWord(s string) error {
 	if !p.acceptWord(s) {
 		return p.errf(p.cur(), "expected %q", s)
 	}
@@ -55,7 +55,7 @@ func isUtilityStart(t Token) bool {
 }
 
 // parseObjectName parses an optionally schema-qualified object name (no alias).
-func (p *Parser) parseObjectName() (*TableName, error) {
+func (p *parser) parseObjectName() (*TableName, error) {
 	name, err := p.parseIdent("name")
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func (p *Parser) parseObjectName() (*TableName, error) {
 }
 
 // parseIfNotExists consumes an optional "IF NOT EXISTS".
-func (p *Parser) parseIfNotExists() (bool, error) {
+func (p *parser) parseIfNotExists() (bool, error) {
 	if !p.acceptWord("if") {
 		return false, nil
 	}
@@ -89,7 +89,7 @@ func (p *Parser) parseIfNotExists() (bool, error) {
 // CREATE
 // ---------------------------------------------------------------------------
 
-func (p *Parser) parseCreate() (Stmt, error) {
+func (p *parser) parseCreate() (Stmt, error) {
 	p.advance() // CREATE
 	orReplace := false
 	if p.acceptKw(kwOr) {
@@ -119,7 +119,7 @@ func (p *Parser) parseCreate() (Stmt, error) {
 // model (partitioning, storage options, inheritance, …), it rewinds and accepts
 // the statement as a RawStmt. This best-effort fallback applies only to DDL —
 // DML and query parsing report errors normally.
-func (p *Parser) ddlOrRaw(parse func() (Stmt, error)) (Stmt, error) {
+func (p *parser) ddlOrRaw(parse func() (Stmt, error)) (Stmt, error) {
 	start := p.stmtStart
 	stmt, err := parse()
 	// Fall back when the structured parse failed, or succeeded but left trailing
@@ -133,11 +133,11 @@ func (p *Parser) ddlOrRaw(parse func() (Stmt, error)) (Stmt, error) {
 }
 
 // atStmtEnd reports whether the parser is at a statement boundary.
-func (p *Parser) atStmtEnd() bool {
+func (p *parser) atStmtEnd() bool {
 	return p.atEOF() || p.cur().Type == TokenSemicolon
 }
 
-func (p *Parser) parseCreateTable(temp bool) (Stmt, error) {
+func (p *parser) parseCreateTable(temp bool) (Stmt, error) {
 	ine, err := p.parseIfNotExists()
 	if err != nil {
 		return nil, err
@@ -176,7 +176,7 @@ func (p *Parser) parseCreateTable(temp bool) (Stmt, error) {
 	return ct, nil
 }
 
-func (p *Parser) parseColumnDef() (ColumnDef, error) {
+func (p *parser) parseColumnDef() (ColumnDef, error) {
 	name, err := p.parseIdent("column name")
 	if err != nil {
 		return ColumnDef{}, err
@@ -196,7 +196,7 @@ func (p *Parser) parseColumnDef() (ColumnDef, error) {
 	return col, nil
 }
 
-func (p *Parser) isColumnConstraintStart() bool {
+func (p *parser) isColumnConstraintStart() bool {
 	switch {
 	case p.isWord("constraint"), p.isKw(kwNot), p.isKw(kwNull), p.isWord("primary"),
 		p.isWord("unique"), p.isKw(kwDefault), p.isWord("check"), p.isWord("references"):
@@ -205,7 +205,7 @@ func (p *Parser) isColumnConstraintStart() bool {
 	return false
 }
 
-func (p *Parser) parseColumnConstraint() (ColumnConstraint, error) {
+func (p *parser) parseColumnConstraint() (ColumnConstraint, error) {
 	c := ColumnConstraint{}
 	if p.acceptWord("constraint") {
 		n, err := p.parseIdent("constraint name")
@@ -261,7 +261,7 @@ func (p *Parser) parseColumnConstraint() (ColumnConstraint, error) {
 }
 
 // parseReferences parses "table [(cols)]" after the REFERENCES keyword.
-func (p *Parser) parseReferences() (*TableName, []string, error) {
+func (p *parser) parseReferences() (*TableName, []string, error) {
 	ref, err := p.parseObjectName()
 	if err != nil {
 		return nil, nil, err
@@ -276,12 +276,12 @@ func (p *Parser) parseReferences() (*TableName, []string, error) {
 	return ref, cols, nil
 }
 
-func (p *Parser) isTableConstraintStart() bool {
+func (p *parser) isTableConstraintStart() bool {
 	return p.isWord("constraint") || p.isWord("primary") || p.isWord("unique") ||
 		p.isWord("check") || p.isWord("foreign")
 }
 
-func (p *Parser) parseTableConstraint() (TableConstraint, error) {
+func (p *parser) parseTableConstraint() (TableConstraint, error) {
 	tc := TableConstraint{}
 	if p.acceptWord("constraint") {
 		n, err := p.parseIdent("constraint name")
@@ -341,7 +341,7 @@ func (p *Parser) parseTableConstraint() (TableConstraint, error) {
 	return tc, nil
 }
 
-func (p *Parser) parseCreateView(orReplace, temp bool) (Stmt, error) {
+func (p *parser) parseCreateView(orReplace, temp bool) (Stmt, error) {
 	name, err := p.parseObjectName()
 	if err != nil {
 		return nil, err
@@ -364,7 +364,7 @@ func (p *Parser) parseCreateView(orReplace, temp bool) (Stmt, error) {
 	return v, nil
 }
 
-func (p *Parser) parseCreateIndex(unique bool) (Stmt, error) {
+func (p *parser) parseCreateIndex(unique bool) (Stmt, error) {
 	p.acceptWord("concurrently")
 	ine, err := p.parseIfNotExists()
 	if err != nil {
@@ -424,7 +424,7 @@ func (p *Parser) parseCreateIndex(unique bool) (Stmt, error) {
 // DROP
 // ---------------------------------------------------------------------------
 
-func (p *Parser) parseDrop() (Stmt, error) {
+func (p *parser) parseDrop() (Stmt, error) {
 	p.advance() // DROP
 	var obj string
 	switch {
@@ -471,7 +471,7 @@ func (p *Parser) parseDrop() (Stmt, error) {
 // ALTER TABLE
 // ---------------------------------------------------------------------------
 
-func (p *Parser) parseAlter() (Stmt, error) {
+func (p *parser) parseAlter() (Stmt, error) {
 	p.advance() // ALTER
 	if !p.acceptWord("table") {
 		// ALTER of other object kinds (INDEX, SEQUENCE, ROLE, …) is recognised
@@ -507,7 +507,7 @@ func (p *Parser) parseAlter() (Stmt, error) {
 	return at, nil
 }
 
-func (p *Parser) parseAlterAction() (AlterAction, error) {
+func (p *parser) parseAlterAction() (AlterAction, error) {
 	switch {
 	case p.acceptWord("add"):
 		return p.parseAlterAdd()
@@ -523,7 +523,7 @@ func (p *Parser) parseAlterAction() (AlterAction, error) {
 	return AlterAction{}, p.errf(p.cur(), "unsupported ALTER TABLE action")
 }
 
-func (p *Parser) parseAlterAdd() (AlterAction, error) {
+func (p *parser) parseAlterAdd() (AlterAction, error) {
 	if p.isTableConstraintStart() {
 		tc, err := p.parseTableConstraint()
 		if err != nil {
@@ -539,7 +539,7 @@ func (p *Parser) parseAlterAdd() (AlterAction, error) {
 	return AlterAction{Kind: AlterAddColumn, Column: col}, nil
 }
 
-func (p *Parser) parseAlterDrop() (AlterAction, error) {
+func (p *parser) parseAlterDrop() (AlterAction, error) {
 	if p.acceptWord("constraint") {
 		n, err := p.parseIdent("constraint name")
 		if err != nil {
@@ -565,7 +565,7 @@ func (p *Parser) parseAlterDrop() (AlterAction, error) {
 	return a, nil
 }
 
-func (p *Parser) parseAlterColumn() (AlterAction, error) {
+func (p *parser) parseAlterColumn() (AlterAction, error) {
 	p.acceptWord("column")
 	name, err := p.parseIdent("column name")
 	if err != nil {
@@ -609,7 +609,7 @@ func (p *Parser) parseAlterColumn() (AlterAction, error) {
 	return AlterAction{}, p.errf(p.cur(), "unsupported ALTER COLUMN action")
 }
 
-func (p *Parser) parseAlterRename() (AlterAction, error) {
+func (p *parser) parseAlterRename() (AlterAction, error) {
 	if p.acceptWord("to") {
 		n, err := p.parseIdent("new table name")
 		if err != nil {

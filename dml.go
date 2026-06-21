@@ -2,7 +2,7 @@ package pgparse
 
 // parseInsert parses INSERT INTO table [(cols)] VALUES ... | SELECT ...
 // with optional ON CONFLICT and RETURNING.
-func (p *Parser) parseInsert(with []*CTE) (*InsertStmt, error) {
+func (p *parser) parseInsert(with []*CTE) (*InsertStmt, error) {
 	p.advance() // INSERT
 	if !p.acceptKw(kwInto) {
 		return nil, p.errf(p.cur(), "expected INTO after INSERT")
@@ -60,7 +60,7 @@ func (p *Parser) parseInsert(with []*CTE) (*InsertStmt, error) {
 	return ins, nil
 }
 
-func (p *Parser) parseValuesRows() ([][]Expr, error) {
+func (p *parser) parseValuesRows() ([][]Expr, error) {
 	var rows [][]Expr
 	for {
 		if _, err := p.expectType(TokenLParen, "'(' before VALUES row"); err != nil {
@@ -92,7 +92,7 @@ func (p *Parser) parseValuesRows() ([][]Expr, error) {
 	return rows, nil
 }
 
-func (p *Parser) parseOnConflict() (*OnConflict, error) {
+func (p *parser) parseOnConflict() (*OnConflict, error) {
 	p.advance() // ON
 	if !p.acceptKw(kwConflict) {
 		return nil, p.errf(p.cur(), "expected CONFLICT after ON")
@@ -149,7 +149,7 @@ func (p *Parser) parseOnConflict() (*OnConflict, error) {
 }
 
 // parseUpdate parses UPDATE table SET ... [FROM ...] [WHERE ...] [RETURNING ...].
-func (p *Parser) parseUpdate(with []*CTE) (*UpdateStmt, error) {
+func (p *parser) parseUpdate(with []*CTE) (*UpdateStmt, error) {
 	p.advance() // UPDATE
 	tn, err := p.parseTableName()
 	if err != nil {
@@ -185,7 +185,7 @@ func (p *Parser) parseUpdate(with []*CTE) (*UpdateStmt, error) {
 }
 
 // parseDelete parses DELETE FROM table [USING ...] [WHERE ...] [RETURNING ...].
-func (p *Parser) parseDelete(with []*CTE) (*DeleteStmt, error) {
+func (p *parser) parseDelete(with []*CTE) (*DeleteStmt, error) {
 	p.advance() // DELETE
 	if !p.acceptKw(kwFrom) {
 		return nil, p.errf(p.cur(), "expected FROM after DELETE")
@@ -218,7 +218,7 @@ func (p *Parser) parseDelete(with []*CTE) (*DeleteStmt, error) {
 
 // parseAssignments parses a SET list: either "col = expr" or the multi-column
 // "(col, ...) = (expr, ...)" / "(col, ...) = (SELECT ...)" form, comma-separated.
-func (p *Parser) parseAssignments() ([]Assignment, error) {
+func (p *parser) parseAssignments() ([]Assignment, error) {
 	var asgs []Assignment
 	for {
 		a, err := p.parseAssignment()
@@ -233,7 +233,7 @@ func (p *Parser) parseAssignments() ([]Assignment, error) {
 	return asgs, nil
 }
 
-func (p *Parser) parseAssignment() (Assignment, error) {
+func (p *parser) parseAssignment() (Assignment, error) {
 	if p.cur().Type == TokenLParen {
 		return p.parseMultiAssignment()
 	}
@@ -260,7 +260,7 @@ func (p *Parser) parseAssignment() (Assignment, error) {
 }
 
 // parseMultiAssignment parses "(a, b) = (v1, v2)" or "(a, b) = (SELECT ...)".
-func (p *Parser) parseMultiAssignment() (Assignment, error) {
+func (p *parser) parseMultiAssignment() (Assignment, error) {
 	cols, err := p.parseNameList()
 	if err != nil {
 		return Assignment{}, err
@@ -292,7 +292,7 @@ func (p *Parser) parseMultiAssignment() (Assignment, error) {
 }
 
 // parseTableName parses an optionally schema-qualified table name with alias.
-func (p *Parser) parseTableName() (*TableName, error) {
+func (p *parser) parseTableName() (*TableName, error) {
 	name, err := p.parseIdent("table name")
 	if err != nil {
 		return nil, err

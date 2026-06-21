@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-// Parser turns a token stream into an AST. One Parser handles one input; reuse
+// parser turns a token stream into an AST. One parser handles one input; reuse
 // is not supported (cheap to allocate).
-type Parser struct {
+type parser struct {
 	src       string
 	toks      []Token
 	pos       int
@@ -24,7 +24,7 @@ const maxNestingDepth = 1000
 
 // enter increases the recursion depth, returning an error if the nesting limit
 // is exceeded. Callers must pair it with a deferred leave.
-func (p *Parser) enter() error {
+func (p *parser) enter() error {
 	p.depth++
 	if p.depth > maxNestingDepth {
 		return newSyntaxError(p.src, p.cur().Pos, "maximum nesting depth exceeded")
@@ -32,15 +32,15 @@ func (p *Parser) enter() error {
 	return nil
 }
 
-func (p *Parser) leave() { p.depth-- }
+func (p *parser) leave() { p.depth-- }
 
-// newParser constructs a Parser over an already-lexed token slice.
-func newParser(src string, toks []Token) *Parser { return &Parser{src: src, toks: toks} }
+// newParser constructs a parser over an already-lexed token slice.
+func newParser(src string, toks []Token) *parser { return &parser{src: src, toks: toks} }
 
-func (p *Parser) cur() Token  { return p.toks[p.pos] }
-func (p *Parser) peek() Token { return p.toks[p.pos] }
+func (p *parser) cur() Token  { return p.toks[p.pos] }
+func (p *parser) peek() Token { return p.toks[p.pos] }
 
-func (p *Parser) peekAt(n int) Token {
+func (p *parser) peekAt(n int) Token {
 	i := p.pos + n
 	if i >= len(p.toks) {
 		return p.toks[len(p.toks)-1] // EOF
@@ -48,7 +48,7 @@ func (p *Parser) peekAt(n int) Token {
 	return p.toks[i]
 }
 
-func (p *Parser) advance() Token {
+func (p *parser) advance() Token {
 	t := p.toks[p.pos]
 	if p.pos < len(p.toks)-1 {
 		p.pos++
@@ -56,14 +56,14 @@ func (p *Parser) advance() Token {
 	return t
 }
 
-func (p *Parser) atEOF() bool { return p.cur().Type == TokenEOF }
+func (p *parser) atEOF() bool { return p.cur().Type == TokenEOF }
 
-func (p *Parser) isKw(kw Keyword) bool {
+func (p *parser) isKw(kw keyword) bool {
 	t := p.cur()
-	return t.Type == TokenKeyword && t.Kw == kw
+	return t.Type == TokenKeyword && t.kw == kw
 }
 
-func (p *Parser) acceptKw(kw Keyword) bool {
+func (p *parser) acceptKw(kw keyword) bool {
 	if p.isKw(kw) {
 		p.advance()
 		return true
@@ -71,7 +71,7 @@ func (p *Parser) acceptKw(kw Keyword) bool {
 	return false
 }
 
-func (p *Parser) acceptType(tt TokenType) bool {
+func (p *parser) acceptType(tt TokenType) bool {
 	if p.cur().Type == tt {
 		p.advance()
 		return true
@@ -79,7 +79,7 @@ func (p *Parser) acceptType(tt TokenType) bool {
 	return false
 }
 
-func (p *Parser) expectType(tt TokenType, what string) (Token, error) {
+func (p *parser) expectType(tt TokenType, what string) (Token, error) {
 	t := p.cur()
 	if t.Type != tt {
 		return t, p.errf(t, "expected %s", what)
@@ -88,7 +88,7 @@ func (p *Parser) expectType(tt TokenType, what string) (Token, error) {
 	return t, nil
 }
 
-func (p *Parser) errf(t Token, format string, args ...interface{}) error {
+func (p *parser) errf(t Token, format string, args ...interface{}) error {
 	return newSyntaxError(p.src, t.Pos, sprintf(format, args...)+" near "+describe(t))
 }
 
@@ -97,7 +97,7 @@ func (p *Parser) errf(t Token, format string, args ...interface{}) error {
 // ---------------------------------------------------------------------------
 
 // parseStatements reads semicolon-separated statements until EOF.
-func (p *Parser) parseStatements() ([]Stmt, error) {
+func (p *parser) parseStatements() ([]Stmt, error) {
 	var stmts []Stmt
 	for !p.atEOF() {
 		if p.acceptType(TokenSemicolon) {
@@ -117,7 +117,7 @@ func (p *Parser) parseStatements() ([]Stmt, error) {
 	return stmts, nil
 }
 
-func (p *Parser) parseStatement() (Stmt, error) {
+func (p *parser) parseStatement() (Stmt, error) {
 	p.stmtStart = p.pos
 	var with []*CTE
 	if p.isKw(kwWith) {
@@ -159,7 +159,7 @@ func (p *Parser) parseStatement() (Stmt, error) {
 // parseRawStmt consumes a recognised but unmodelled statement up to (not
 // including) the top-level statement terminator, validating that delimiters are
 // balanced, and preserves the verbatim SQL.
-func (p *Parser) parseRawStmt() (Stmt, error) {
+func (p *parser) parseRawStmt() (Stmt, error) {
 	startTok := p.toks[p.stmtStart]
 	kw := strings.ToUpper(startTok.Val)
 	depth := 0
@@ -183,11 +183,11 @@ func (p *Parser) parseRawStmt() (Stmt, error) {
 		end = p.cur().Pos
 	}
 	sql := strings.TrimSpace(p.src[startTok.Pos:end])
-	return &RawStmt{Keyword: kw, SQL: sql}, nil
+	return &RawStmt{keyword: kw, SQL: sql}, nil
 }
 
 // parseWith parses a WITH [RECURSIVE] cte [, cte]* clause.
-func (p *Parser) parseWith() ([]*CTE, error) {
+func (p *parser) parseWith() ([]*CTE, error) {
 	p.advance() // WITH
 	recursive := p.acceptKw(kwRecursive)
 	var ctes []*CTE
@@ -242,7 +242,7 @@ func (p *Parser) parseWith() ([]*CTE, error) {
 
 // parseSearchCycle consumes the optional SEARCH and CYCLE clauses of a recursive
 // CTE. They are recognised but not modelled.
-func (p *Parser) parseSearchCycle() error {
+func (p *parser) parseSearchCycle() error {
 	identList := func() error {
 		for {
 			if _, err := p.parseIdent("column name"); err != nil {
@@ -305,7 +305,7 @@ func (p *Parser) parseSearchCycle() error {
 
 // isColumnListAhead reports whether "( ident [, ident]* )" starts here, used to
 // disambiguate an optional CTE/insert column list from a subquery.
-func (p *Parser) isColumnListAhead() bool {
+func (p *parser) isColumnListAhead() bool {
 	if p.cur().Type != TokenLParen {
 		return false
 	}
@@ -319,7 +319,7 @@ func (p *Parser) isColumnListAhead() bool {
 // parseSelect parses a full select expression: set operations with correct
 // precedence (INTERSECT binds tighter than UNION/EXCEPT) followed by a single
 // trailing ORDER BY / LIMIT / OFFSET that applies to the whole expression.
-func (p *Parser) parseSelect() (*SelectStmt, error) {
+func (p *parser) parseSelect() (*SelectStmt, error) {
 	if err := p.enter(); err != nil {
 		return nil, err
 	}
@@ -351,7 +351,7 @@ func (p *Parser) parseSelect() (*SelectStmt, error) {
 
 // parseUnionExpr handles the lowest-precedence set operators, UNION and EXCEPT,
 // left-associatively.
-func (p *Parser) parseUnionExpr() (*SelectStmt, error) {
+func (p *parser) parseUnionExpr() (*SelectStmt, error) {
 	left, err := p.parseIntersectExpr()
 	if err != nil {
 		return nil, err
@@ -380,7 +380,7 @@ func (p *Parser) parseUnionExpr() (*SelectStmt, error) {
 }
 
 // parseIntersectExpr handles INTERSECT, which binds tighter than UNION/EXCEPT.
-func (p *Parser) parseIntersectExpr() (*SelectStmt, error) {
+func (p *parser) parseIntersectExpr() (*SelectStmt, error) {
 	left, err := p.parseSelectPrimary()
 	if err != nil {
 		return nil, err
@@ -403,7 +403,7 @@ func (p *Parser) parseIntersectExpr() (*SelectStmt, error) {
 // parseSelectPrimary parses one set-operation operand: either a parenthesised
 // select expression (which may carry its own tail inside the parens) or a bare
 // SELECT body.
-func (p *Parser) parseSelectPrimary() (*SelectStmt, error) {
+func (p *parser) parseSelectPrimary() (*SelectStmt, error) {
 	if p.cur().Type == TokenLParen {
 		p.advance()
 		inner, err := p.parseSelect()
@@ -440,7 +440,7 @@ func (p *Parser) parseSelectPrimary() (*SelectStmt, error) {
 
 // parseSelectBody parses a single SELECT ... block up to but excluding the
 // trailing ORDER BY / LIMIT / OFFSET, which the caller attaches.
-func (p *Parser) parseSelectBody() (*SelectStmt, error) {
+func (p *parser) parseSelectBody() (*SelectStmt, error) {
 	if !p.acceptKw(kwSelect) {
 		return nil, p.errf(p.cur(), "expected SELECT")
 	}
@@ -537,7 +537,7 @@ func (p *Parser) parseSelectBody() (*SelectStmt, error) {
 }
 
 // parseTail parses the trailing ORDER BY / LIMIT / OFFSET shared by selects.
-func (p *Parser) parseTail(s *SelectStmt) error {
+func (p *parser) parseTail(s *SelectStmt) error {
 	if p.isKw(kwOrder) {
 		p.advance()
 		if !p.acceptKw(kwBy) {
@@ -606,7 +606,7 @@ func (p *Parser) parseTail(s *SelectStmt) error {
 	return nil
 }
 
-func (p *Parser) parseLockClause() (LockClause, error) {
+func (p *parser) parseLockClause() (LockClause, error) {
 	p.advance() // FOR
 	var lc LockClause
 	switch {
@@ -653,7 +653,7 @@ func (p *Parser) parseLockClause() (LockClause, error) {
 
 // parseGroupList parses GROUP BY elements, including ROLLUP/CUBE/GROUPING SETS
 // and the empty grouping "()".
-func (p *Parser) parseGroupList() ([]Expr, error) {
+func (p *parser) parseGroupList() ([]Expr, error) {
 	var list []Expr
 	for {
 		e, err := p.parseGroupElem()
@@ -668,7 +668,7 @@ func (p *Parser) parseGroupList() ([]Expr, error) {
 	return list, nil
 }
 
-func (p *Parser) parseGroupElem() (Expr, error) {
+func (p *parser) parseGroupElem() (Expr, error) {
 	// Empty grouping set: ().
 	if p.cur().Type == TokenLParen && p.peekAt(1).Type == TokenRParen {
 		p.advance()
@@ -708,7 +708,7 @@ func (p *Parser) parseGroupElem() (Expr, error) {
 	return g, nil
 }
 
-func (p *Parser) parseSelectList() ([]SelectItem, error) {
+func (p *parser) parseSelectList() ([]SelectItem, error) {
 	// PostgreSQL allows an empty target list: SELECT FROM t.
 	if p.isKw(kwFrom) || p.atEOF() || p.cur().Type == TokenSemicolon || p.cur().Type == TokenRParen {
 		return nil, nil
@@ -741,7 +741,7 @@ func (p *Parser) parseSelectList() ([]SelectItem, error) {
 }
 
 // parseOptionalAlias parses an optional output alias: [AS] name.
-func (p *Parser) parseOptionalAlias() (string, bool, error) {
+func (p *parser) parseOptionalAlias() (string, bool, error) {
 	if p.acceptKw(kwAs) {
 		name, err := p.parseIdent("alias")
 		return name, err == nil, err
@@ -757,7 +757,7 @@ func (p *Parser) parseOptionalAlias() (string, bool, error) {
 // FROM
 // ---------------------------------------------------------------------------
 
-func (p *Parser) parseFromList() ([]TableExpr, error) {
+func (p *parser) parseFromList() ([]TableExpr, error) {
 	var items []TableExpr
 	for {
 		te, err := p.parseTableExpr()
@@ -773,7 +773,7 @@ func (p *Parser) parseFromList() ([]TableExpr, error) {
 }
 
 // parseTableExpr parses a table primary followed by any join chain.
-func (p *Parser) parseTableExpr() (TableExpr, error) {
+func (p *parser) parseTableExpr() (TableExpr, error) {
 	if err := p.enter(); err != nil {
 		return nil, err
 	}
@@ -803,7 +803,7 @@ func (p *Parser) parseTableExpr() (TableExpr, error) {
 }
 
 // peekJoinKind detects and consumes a join keyword prefix, returning its kind.
-func (p *Parser) peekJoinKind() (JoinKind, bool) {
+func (p *parser) peekJoinKind() (JoinKind, bool) {
 	switch {
 	case p.isKw(kwJoin):
 		p.advance()
@@ -835,7 +835,7 @@ func (p *Parser) peekJoinKind() (JoinKind, bool) {
 	return 0, false
 }
 
-func (p *Parser) parseJoinRHS(jk JoinKind, natural bool) (TableExpr, Expr, []string, error) {
+func (p *parser) parseJoinRHS(jk JoinKind, natural bool) (TableExpr, Expr, []string, error) {
 	right, err := p.parseTablePrimary()
 	if err != nil {
 		return nil, nil, nil, err
@@ -861,7 +861,7 @@ func (p *Parser) parseJoinRHS(jk JoinKind, natural bool) (TableExpr, Expr, []str
 }
 
 // parseTablePrimary parses a single relation, subquery, or parenthesised join.
-func (p *Parser) parseTablePrimary() (TableExpr, error) {
+func (p *parser) parseTablePrimary() (TableExpr, error) {
 	// Optional LATERAL prefix before a subquery (LATERAL is non-reserved).
 	lateral := false
 	if identIs(p.cur(), "lateral") {
@@ -870,7 +870,7 @@ func (p *Parser) parseTablePrimary() (TableExpr, error) {
 	}
 	if p.cur().Type == TokenLParen {
 		// Could be a subquery or a parenthesised join.
-		if k := p.peekAt(1); k.Type == TokenKeyword && (k.Kw == kwSelect || k.Kw == kwWith || k.Kw == kwValues) {
+		if k := p.peekAt(1); k.Type == TokenKeyword && (k.kw == kwSelect || k.kw == kwWith || k.kw == kwValues) {
 			p.advance()
 			sub, err := p.parseSelect()
 			if err != nil {
@@ -976,7 +976,7 @@ func nonAliasWord(t Token) bool {
 }
 
 // parseTableAlias parses [AS] alias for a table, refusing clause keywords.
-func (p *Parser) parseTableAlias() (string, bool, error) {
+func (p *parser) parseTableAlias() (string, bool, error) {
 	if p.acceptKw(kwAs) {
 		name, err := p.parseIdent("table alias")
 		return name, err == nil, err
@@ -991,7 +991,7 @@ func (p *Parser) parseTableAlias() (string, bool, error) {
 // ORDER BY / name lists
 // ---------------------------------------------------------------------------
 
-func (p *Parser) parseOrderList() ([]OrderItem, error) {
+func (p *parser) parseOrderList() ([]OrderItem, error) {
 	var items []OrderItem
 	for {
 		e, err := p.parseExpr()
@@ -1026,7 +1026,7 @@ func (p *Parser) parseOrderList() ([]OrderItem, error) {
 	return items, nil
 }
 
-func (p *Parser) parseNameList() ([]string, error) {
+func (p *parser) parseNameList() ([]string, error) {
 	if _, err := p.expectType(TokenLParen, "'('"); err != nil {
 		return nil, err
 	}
@@ -1047,7 +1047,7 @@ func (p *Parser) parseNameList() ([]string, error) {
 	return names, nil
 }
 
-func (p *Parser) parseExprList() ([]Expr, error) {
+func (p *parser) parseExprList() ([]Expr, error) {
 	var list []Expr
 	for {
 		e, err := p.parseExpr()
@@ -1064,7 +1064,7 @@ func (p *Parser) parseExprList() ([]Expr, error) {
 
 // parseIdent reads one identifier (quoted or bare). Quoted identifiers keep
 // their original case; bare identifiers are returned verbatim.
-func (p *Parser) parseIdent(what string) (string, error) {
+func (p *parser) parseIdent(what string) (string, error) {
 	t := p.cur()
 	if t.Type != TokenIdent {
 		return "", p.errf(t, "expected %s", what)

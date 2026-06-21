@@ -139,7 +139,7 @@ type AlterAction struct {
 // GRANT, CREATE TYPE/SEQUENCE/…, DROP ROLE, …). Its token span is validated
 // (balanced delimiters, proper termination), and the verbatim SQL is preserved.
 type RawStmt struct {
-	Keyword string // leading keyword, upper-cased (e.g. "ANALYZE", "SET")
+	keyword string // leading keyword, upper-cased (e.g. "ANALYZE", "SET")
 	SQL     string // verbatim statement text
 }
 

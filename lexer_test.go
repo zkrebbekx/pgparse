@@ -20,7 +20,7 @@ func TestLexer(t *testing.T) {
 
 			Convey("Then keywords, identifiers and literals are classified", func() {
 				So(toks[0].Type, ShouldEqual, TokenKeyword)
-				So(toks[0].Kw, ShouldEqual, kwSelect)
+				So(toks[0].kw, ShouldEqual, kwSelect)
 				So(toks[1].Type, ShouldEqual, TokenIdent)
 				So(toks[3].Type, ShouldEqual, TokenIdent)  // "B" quoted
 				So(toks[5].Type, ShouldEqual, TokenString) // 'x''y'
@@ -35,8 +35,8 @@ func TestLexer(t *testing.T) {
 		Convey("When tokenized", func() {
 			toks, _ := Tokenize("SeLeCt WHERE")
 			Convey("Then folding is case-insensitive", func() {
-				So(toks[0].Kw, ShouldEqual, kwSelect)
-				So(toks[1].Kw, ShouldEqual, kwWhere)
+				So(toks[0].kw, ShouldEqual, kwSelect)
+				So(toks[1].kw, ShouldEqual, kwWhere)
 			})
 		})
 	})
