@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-06-22
+
+Grammar coverage of the PostgreSQL regression suite rises from 97.8% to **99.4%**.
+All additions are backward-compatible (new node/field, no removals).
+
+### Added
+- `FieldExpr` node: field selection on a composite expression — `(x).a`,
+  `arr[1].field`, `func(...).f`, and `(x).*`.
+- INSERT column targets may now carry subscript/field indirection:
+  `INSERT INTO t (f2[1], f4[1].g) VALUES (...)`.
+- `ON CONFLICT` targets may be expressions, e.g. `ON CONFLICT (lower(name))`.
+- `JoinExpr.Alias`: join aliases — `a JOIN b USING (i) AS x` and
+  `(a JOIN b) AS x`.
+- Set-returning-function column-definition lists: `f(...) AS x(a int, b text)`
+  and `f(...) AS (a int)`. `FuncTable.ColumnsText` keeps the verbatim list so the
+  column types survive a deparse.
+- Non-reserved keywords are accepted as column aliases after `AS` (e.g.
+  `count(*) AS desc`).
+- More built-in type names take a typed string literal (geometric types
+  `point`/`box`/`circle`/…, `bit`, `int4`, `oid`, `xml`, …).
+
 ## [1.0.0] — 2026-06-21
 
 First stable release. The public API is now covered by Semantic Versioning.
@@ -79,7 +100,8 @@ First stable release. The public API is now covered by Semantic Versioning.
   subqueries, set operations, window functions, the scalar expression grammar,
   and an idiomatic typed AST. No cgo, no WebAssembly runtime.
 
-[Unreleased]: https://github.com/zkrebbekx/pgparse/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/zkrebbekx/pgparse/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/zkrebbekx/pgparse/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/zkrebbekx/pgparse/compare/v0.3.2...v1.0.0
 [0.3.2]: https://github.com/zkrebbekx/pgparse/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/zkrebbekx/pgparse/compare/v0.3.0...v0.3.1

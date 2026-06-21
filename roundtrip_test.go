@@ -68,6 +68,24 @@ func TestRoundTrip(t *testing.T) {
 			"DELETE FROM t USING u WHERE t.id = u.id",
 			"DROP VIEW v; DROP SEQUENCE s; DROP INDEX i",
 			"WITH RECURSIVE t (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t) CYCLE n SET cyc TO true DEFAULT false USING pth SELECT * FROM t",
+			// v1.1 additions
+			"INSERT INTO t (f2[1], f2[2], f4[1].if2[1]) VALUES (1, 2, 3)",
+			`INSERT INTO t ("Foo", "Bar") VALUES (1, 2) ON CONFLICT ("Foo") DO NOTHING`,
+			"SELECT (x).a, (arr[1]).b, (f()).* FROM t",
+			"INSERT INTO t (a) VALUES (1) ON CONFLICT (lower(name)) DO NOTHING",
+			"INSERT INTO t (a) VALUES (1) ON CONFLICT (a, b) DO NOTHING",
+			"SELECT * FROM a JOIN b USING (id) AS j",
+			"SELECT * FROM (a JOIN b USING (id)) AS j",
+			"SELECT * FROM jsonb_to_record('{}') AS x (ia _int4, j json)",
+			"SELECT * FROM jsonb_to_record('{}') AS (a int, b text)",
+			"SELECT count(*) AS desc FROM t",
+			"SELECT f1 <@ circle '<(0,0),5>' FROM t",
+			`SELECT "a""b", ARRAY[1, 2], ARRAY(SELECT 1) FROM t`,
+			"SELECT CAST(a AS numeric(10, 2)) FROM t",
+			"SELECT * FROM t FOR UPDATE OF t NOWAIT",
+			"SELECT * FROM t FOR SHARE SKIP LOCKED",
+			"SELECT * FROM t FOR NO KEY UPDATE",
+			"SELECT * FROM t FOR KEY SHARE",
 		}
 
 		Convey("When parsed, deparsed, and re-parsed", func() {

@@ -14,7 +14,7 @@ func (p *parser) parseInsert(with []*CTE) (*InsertStmt, error) {
 	ins := &InsertStmt{With: with, Table: tn}
 
 	if p.isColumnListAhead() {
-		ins.Columns, err = p.parseNameList()
+		ins.Columns, err = p.parseColumnTargets()
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +109,7 @@ func (p *parser) parseOnConflict() (*OnConflict, error) {
 		}
 		oc.Constraint = n
 	} else if p.isColumnListAhead() {
-		cols, err := p.parseNameList()
+		cols, err := p.parseExprTargets()
 		if err != nil {
 			return nil, err
 		}
@@ -289,6 +289,53 @@ func (p *parser) parseMultiAssignment() (Assignment, error) {
 		return Assignment{}, err
 	}
 	return a, nil
+}
+
+// parseColumnTargets parses an INSERT column list "(target, ...)" where each
+// target is a column with optional subscript/field indirection (f, f[1],
+// f[1:2], f[1].g). Targets are stored as their rendered text.
+func (p *parser) parseColumnTargets() ([]string, error) {
+	if _, err := p.expectType(TokenLParen, "'('"); err != nil {
+		return nil, err
+	}
+	var out []string
+	for {
+		e, err := p.parsePostfix()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Deparse(e))
+		if !p.acceptType(TokenComma) {
+			break
+		}
+	}
+	if _, err := p.expectType(TokenRParen, "')'"); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// parseExprTargets parses an ON CONFLICT target list "(expr, ...)", which may
+// contain expressions (e.g. lower(name)). Targets are stored as rendered text.
+func (p *parser) parseExprTargets() ([]string, error) {
+	if _, err := p.expectType(TokenLParen, "'('"); err != nil {
+		return nil, err
+	}
+	var out []string
+	for {
+		e, err := p.parseExpr()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Deparse(e))
+		if !p.acceptType(TokenComma) {
+			break
+		}
+	}
+	if _, err := p.expectType(TokenRParen, "')'"); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // parseTableName parses an optionally schema-qualified table name with alias.

@@ -22,7 +22,7 @@ func TestNodeMarkers(t *testing.T) {
 		&FuncCall{}, &CaseExpr{}, &CastExpr{}, &InExpr{}, &BetweenExpr{}, &IsExpr{},
 		&LikeExpr{}, &SubqueryExpr{}, &ExistsExpr{}, &ParenExpr{}, &SubscriptExpr{},
 		&AnyAllExpr{}, &ArrayExpr{}, &IsDistinctExpr{}, &RowExpr{}, &GroupingExpr{},
-		&CollateExpr{},
+		&CollateExpr{}, &FieldExpr{},
 	}
 	for _, e := range exprs {
 		e.node()

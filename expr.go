@@ -414,6 +414,19 @@ func (p *parser) parsePostfix() (Expr, error) {
 			if err != nil {
 				return nil, err
 			}
+		case TokenDot:
+			// Field selection on a complex expression: (x).f, arr[1].f, f().f.
+			p.advance()
+			if p.cur().Type == TokenStar {
+				p.advance()
+				e = &FieldExpr{Expr: e, Field: "*"}
+			} else {
+				field, err := p.parseIdent("field name after '.'")
+				if err != nil {
+					return nil, err
+				}
+				e = &FieldExpr{Expr: e, Field: field}
+			}
 		default:
 			return e, nil
 		}

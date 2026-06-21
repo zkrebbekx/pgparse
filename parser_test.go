@@ -493,15 +493,27 @@ func TestErrors(t *testing.T) {
 			"INSERT users VALUES (1)",
 			"SELECT * FROM t WHERE",
 			"UPDATE t SET",
-			"SELECT CAST(x)",                    // CAST without AS
-			"SELECT extract(x)",                 // extract without FROM
-			"SELECT position(a b)",              // position without IN
-			"SELECT a COLLATE 1",                // bad collation name
-			"SELECT * FROM t WHERE a IN 1",      // IN without (
-			"SELECT * FROM t WHERE a BETWEEN 1", // BETWEEN without AND
-			"SELECT sum(x) OVER (RANGE foo)",    // bad frame bound
-			"SELECT 1 +",                        // dangling operator
-			"WITH x SELECT 1",                   // CTE without AS
+			"SELECT CAST(x)",                                         // CAST without AS
+			"SELECT extract(x)",                                      // extract without FROM
+			"SELECT position(a b)",                                   // position without IN
+			"SELECT a COLLATE 1",                                     // bad collation name
+			"SELECT * FROM t WHERE a IN 1",                           // IN without (
+			"SELECT * FROM t WHERE a BETWEEN 1",                      // BETWEEN without AND
+			"SELECT sum(x) OVER (RANGE foo)",                         // bad frame bound
+			"SELECT 1 +",                                             // dangling operator
+			"WITH x SELECT 1",                                        // CTE without AS
+			"INSERT INTO t (a, ) VALUES (1)",                         // trailing comma in column targets
+			"INSERT INTO t (a[1) VALUES (1)",                         // unterminated subscript target
+			"INSERT INTO t (a) VALUES (1) ON CONFLICT (",             // unterminated conflict target
+			"INSERT INTO t (a) VALUES (1) ON CONFLICT (1 +",          // bad conflict expression
+			"SELECT * FROM f() AS x (a int,",                         // unterminated coldef list
+			"SELECT * FROM f() AS x (1)",                             // non-name in coldef list
+			"SELECT (x).",                                            // field selection without name
+			"SELECT * FROM a JOIN b USING (id) AS",                   // join alias without name
+			"INSERT INTO t (a DEFAULT VALUES",                        // column targets not closed
+			"INSERT INTO t (a) VALUES (1) ON CONFLICT (a DO NOTHING", // conflict target not closed
+			"SELECT * FROM f() AS x (a int",                          // coldef list not closed
+			`SELECT "a`,                                              // unterminated quoted identifier
 		}
 		Convey("When each is parsed", func() {
 			Convey("Then every case yields a syntax error, not a panic", func() {

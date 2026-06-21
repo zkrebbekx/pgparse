@@ -182,16 +182,18 @@ type JoinExpr struct {
 	Right   TableExpr
 	On      Expr     // ON predicate
 	Using   []string // USING (cols)
+	Alias   string   // join alias: ... USING (c) AS x, or (a JOIN b) AS x
 }
 
 // FuncTable is a set-returning function used as a FROM item, e.g.
 // generate_series(1, 10) AS g, optionally WITH ORDINALITY.
 type FuncTable struct {
-	Func       Expr // the function call
-	Lateral    bool
-	Ordinality bool
-	Alias      string
-	Columns    []string
+	Func        Expr // the function call
+	Lateral     bool
+	Ordinality  bool
+	Alias       string
+	Columns     []string // column (or column-definition) names
+	ColumnsText string   // verbatim column/definition list incl. types, for faithful deparse
 }
 
 // JoinKind enumerates join flavours.
@@ -442,6 +444,16 @@ type CollateExpr struct {
 
 func (*CollateExpr) node() {}
 func (*CollateExpr) expr() {}
+
+// FieldExpr is field selection on a composite-typed expression: (expr).field,
+// arr[1].field, func(...).field. (A bare column path a.b.c is a ColumnRef.)
+type FieldExpr struct {
+	Expr  Expr
+	Field string // field name, or "*" for (expr).*
+}
+
+func (*FieldExpr) node() {}
+func (*FieldExpr) expr() {}
 
 func (*ColumnRef) node()      {}
 func (*Star) node()           {}

@@ -262,10 +262,10 @@ genuinely-valid statements each pure-Go parser also accepts:
 
 | | statements | accepted |
 |---|--:|--:|
-| **pgparse** | 7,985 | **97.8%** |
+| **pgparse** | 7,985 | **99.4%** |
 | GoSQLX v1.14 | 7,985 | 48.4% |
 
-pgparse accepts **97.8%** of the real PostgreSQL statements `pg_query_go`
+pgparse accepts **99.4%** of the real PostgreSQL statements `pg_query_go`
 accepts, far ahead of GoSQLX. Of those, DML, queries, and core DDL are parsed
 into a full typed AST; utility and administrative statements (`SET`, `COPY`,
 `GRANT`, `ANALYZE`, `CREATE TYPE`/`SEQUENCE`/`FUNCTION`, `DROP ROLE`, …) and the

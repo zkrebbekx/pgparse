@@ -10,6 +10,11 @@ var typeWords = map[string]bool{
 	"numeric": true, "decimal": true, "real": true, "money": true,
 	"uuid": true, "json": true, "jsonb": true, "bytea": true, "bool": true,
 	"boolean": true, "inet": true, "cidr": true, "macaddr": true,
+	// geometric and other built-in types that take a typed string literal
+	"point": true, "line": true, "lseg": true, "box": true, "path": true,
+	"polygon": true, "circle": true, "tsvector": true, "tsquery": true,
+	"xml": true, "bit": true, "varbit": true, "oid": true,
+	"int2": true, "int4": true, "int8": true, "float4": true, "float8": true,
 }
 
 func isTypeWord(s string) bool {

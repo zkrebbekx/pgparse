@@ -233,7 +233,7 @@ func (d *deparser) insert(s *InsertStmt) {
 	d.tableName(s.Table)
 	if len(s.Columns) > 0 {
 		d.ws(" (")
-		d.identList(s.Columns)
+		d.targetList(s.Columns)
 		d.ws(")")
 	}
 	switch {
@@ -269,7 +269,7 @@ func (d *deparser) onConflict(oc *OnConflict) {
 		d.ws(quoteIdent(oc.Constraint))
 	} else if len(oc.Targets) > 0 {
 		d.ws(" (")
-		d.identList(oc.Targets)
+		d.targetList(oc.Targets)
 		d.ws(")")
 		if oc.IndexWhere != nil {
 			d.ws(" WHERE ")
@@ -406,11 +406,16 @@ func (d *deparser) table(t TableExpr) {
 		if x.Ordinality {
 			d.ws(" WITH ORDINALITY")
 		}
-		if x.Alias != "" {
+		if x.Alias != "" || x.ColumnsText != "" || len(x.Columns) > 0 {
 			d.ws(" AS ")
-			d.ws(quoteIdent(x.Alias))
-			if len(x.Columns) > 0 {
-				d.ws(" (")
+			if x.Alias != "" {
+				d.ws(quoteIdent(x.Alias))
+			}
+			switch {
+			case x.ColumnsText != "":
+				d.ws(x.ColumnsText) // verbatim, preserves column types
+			case len(x.Columns) > 0:
+				d.ws("(")
 				d.identList(x.Columns)
 				d.ws(")")
 			}
@@ -444,6 +449,10 @@ func (d *deparser) join(j *JoinExpr) {
 		d.ws(" USING (")
 		d.identList(j.Using)
 		d.ws(")")
+	}
+	if j.Alias != "" {
+		d.ws(" AS ")
+		d.ws(quoteIdent(j.Alias))
 	}
 }
 
@@ -628,6 +637,14 @@ func (d *deparser) expr(e Expr) {
 		d.expr(x.Expr)
 		d.ws(" COLLATE ")
 		d.ws(x.Collation)
+	case *FieldExpr:
+		d.expr(x.Expr)
+		d.ws(".")
+		if x.Field == "*" {
+			d.ws("*")
+		} else {
+			d.ws(quoteIdent(x.Field))
+		}
 	}
 }
 
@@ -881,6 +898,18 @@ func (d *deparser) identList(names []string) {
 			d.ws(", ")
 		}
 		d.ws(quoteIdent(n))
+	}
+}
+
+// targetList renders INSERT/ON CONFLICT targets. The targets are stored as
+// already-rendered SQL (the deparse of each parsed target expression), so they
+// are emitted verbatim — re-quoting here would double-quote identifiers.
+func (d *deparser) targetList(names []string) {
+	for i, n := range names {
+		if i > 0 {
+			d.ws(", ")
+		}
+		d.ws(n)
 	}
 }
 

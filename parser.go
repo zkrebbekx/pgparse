@@ -743,8 +743,14 @@ func (p *parser) parseSelectList() ([]SelectItem, error) {
 // parseOptionalAlias parses an optional output alias: [AS] name.
 func (p *parser) parseOptionalAlias() (string, bool, error) {
 	if p.acceptKw(kwAs) {
-		name, err := p.parseIdent("alias")
-		return name, err == nil, err
+		// After explicit AS the next token is the alias; PostgreSQL allows
+		// non-reserved keywords (e.g. AS desc) as column labels.
+		t := p.cur()
+		if t.Type == TokenIdent || t.Type == TokenKeyword {
+			p.advance()
+			return identText(t), true, nil
+		}
+		return "", false, p.errf(t, "expected alias")
 	}
 	// bare identifier that is not a reserved clause keyword acts as an alias
 	if p.cur().Type == TokenIdent {
@@ -798,7 +804,16 @@ func (p *parser) parseTableExpr() (TableExpr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = &JoinExpr{Kind: jk, Natural: natural, Left: left, Right: right, On: on, Using: using}
+		je := &JoinExpr{Kind: jk, Natural: natural, Left: left, Right: right, On: on, Using: using}
+		// Optional join alias: ... USING (c) AS x.
+		if p.acceptKw(kwAs) {
+			al, err := p.parseIdent("join alias")
+			if err != nil {
+				return nil, err
+			}
+			je.Alias = al
+		}
+		left = je
 	}
 }
 
@@ -900,6 +915,14 @@ func (p *parser) parseTablePrimary() (TableExpr, error) {
 		if _, err := p.expectType(TokenRParen, "')'"); err != nil {
 			return nil, err
 		}
+		// Optional alias on a parenthesised join: (a JOIN b ...) AS x.
+		if je, ok := inner.(*JoinExpr); ok {
+			if alias, ok, err := p.parseTableAlias(); err != nil {
+				return nil, err
+			} else if ok {
+				je.Alias = alias
+			}
+		}
 		return inner, nil
 	}
 
@@ -929,12 +952,24 @@ func (p *parser) parseTablePrimary() (TableExpr, error) {
 			p.advance()
 			ft.Ordinality = true
 		}
-		if alias, ok, err := p.parseTableAlias(); err != nil {
-			return nil, err
-		} else if ok {
-			ft.Alias = alias
-			if p.isColumnListAhead() {
-				ft.Columns, err = p.parseNameList()
+		// Alias and/or a column-definition list: AS x, AS x(c type), AS (c type).
+		if p.acceptKw(kwAs) {
+			if p.cur().Type != TokenLParen {
+				ft.Alias, err = p.parseIdent("function alias")
+				if err != nil {
+					return nil, err
+				}
+			}
+			if p.cur().Type == TokenLParen {
+				ft.Columns, ft.ColumnsText, err = p.parseFuncColumnDefs()
+				if err != nil {
+					return nil, err
+				}
+			}
+		} else if p.cur().Type == TokenIdent && !nonAliasWord(p.cur()) {
+			ft.Alias = identText(p.advance())
+			if p.cur().Type == TokenLParen {
+				ft.Columns, ft.ColumnsText, err = p.parseFuncColumnDefs()
 				if err != nil {
 					return nil, err
 				}
@@ -1045,6 +1080,40 @@ func (p *parser) parseNameList() ([]string, error) {
 		return nil, err
 	}
 	return names, nil
+}
+
+// parseFuncColumnDefs parses a function-table column list, which may be plain
+// names "(a, b)" or a column-definition list "(a int, b text)". It returns the
+// column names and the verbatim "(...)" text (so a definition list keeps its
+// types when deparsed).
+func (p *parser) parseFuncColumnDefs() ([]string, string, error) {
+	start := p.cur().Pos
+	if _, err := p.expectType(TokenLParen, "'('"); err != nil {
+		return nil, "", err
+	}
+	var names []string
+	for {
+		n, err := p.parseIdent("column name")
+		if err != nil {
+			return nil, "", err
+		}
+		names = append(names, n)
+		// optional type name
+		if p.cur().Type != TokenComma && p.cur().Type != TokenRParen {
+			if _, err := p.parseTypeName(); err != nil {
+				return nil, "", err
+			}
+		}
+		if !p.acceptType(TokenComma) {
+			break
+		}
+	}
+	rparen, err := p.expectType(TokenRParen, "')'")
+	if err != nil {
+		return nil, "", err
+	}
+	raw := p.src[start : rparen.Pos+1]
+	return names, raw, nil
 }
 
 func (p *parser) parseExprList() ([]Expr, error) {
