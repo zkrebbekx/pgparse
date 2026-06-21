@@ -380,6 +380,32 @@ make compare        # see Makefile; sets the macOS CGO workaround
 
 Coverage of the corpus is asserted by `TestTPCHCoverage` (22/22).
 
+## Stability
+
+pgparse follows [Semantic Versioning](https://semver.org/). The public API —
+the top-level functions (`Parse`, `ParseOne`, `Tokenize`, `Deparse`, `Classify`,
+`Mutates`) and the exported AST types in [`ast.go`](ast.go) / DDL nodes — is the
+compatibility surface.
+
+While on `v0.x`, the API is stable in practice but not yet frozen; **pin a
+version** and check the [CHANGELOG](CHANGELOG.md) before upgrading. After `v1.0`:
+
+- No breaking changes to the public API within a major version. New AST fields
+  and new statement/expression kinds may be **added** (so always include a
+  default case when type-switching over `Stmt`/`Expr`); fields and types are not
+  removed or renamed except in a new major version.
+- `Parse` continues to never panic and to bound recursion and input size.
+
+Safety on untrusted input and the limits of `Mutates`/`Classify` are described in
+[SECURITY.md](SECURITY.md).
+
+## Security
+
+Run on untrusted input safely: `Parse` never panics, recursion depth is bounded,
+and `MaxInputBytes` caps input size. See [SECURITY.md](SECURITY.md) for the
+threat model and how to report a vulnerability. Note that `Mutates`/`Classify`
+is a syntactic hint, **not** a security control.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

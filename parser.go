@@ -27,7 +27,7 @@ const maxNestingDepth = 1000
 func (p *Parser) enter() error {
 	p.depth++
 	if p.depth > maxNestingDepth {
-		return &SyntaxError{Pos: p.cur().Pos, Msg: "maximum nesting depth exceeded"}
+		return newSyntaxError(p.src, p.cur().Pos, "maximum nesting depth exceeded")
 	}
 	return nil
 }
@@ -89,7 +89,7 @@ func (p *Parser) expectType(tt TokenType, what string) (Token, error) {
 }
 
 func (p *Parser) errf(t Token, format string, args ...interface{}) error {
-	return &SyntaxError{Pos: t.Pos, Msg: sprintf(format, args...) + " near " + describe(t)}
+	return newSyntaxError(p.src, t.Pos, sprintf(format, args...)+" near "+describe(t))
 }
 
 // ---------------------------------------------------------------------------

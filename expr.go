@@ -15,7 +15,7 @@ func (p *Parser) parseExpr() (Expr, error) {
 	p.depth++
 	if p.depth > maxNestingDepth {
 		p.depth--
-		return nil, &SyntaxError{Pos: p.cur().Pos, Msg: "maximum nesting depth exceeded"}
+		return nil, newSyntaxError(p.src, p.cur().Pos, "maximum nesting depth exceeded")
 	}
 	e, err := p.parseOr()
 	p.depth--

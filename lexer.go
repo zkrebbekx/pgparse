@@ -1,6 +1,9 @@
 package pgparse
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // Lexer is a single-pass, byte-oriented scanner over a SQL string. It performs
 // no regular-expression matching and produces tokens whose Val fields alias the
@@ -13,14 +16,24 @@ type Lexer struct {
 // NewLexer returns a Lexer positioned at the start of src.
 func NewLexer(src string) *Lexer { return &Lexer{src: src} }
 
+// MaxInputBytes is the largest input Parse and Tokenize accept. Larger inputs
+// return a *SyntaxError instead of allocating unbounded memory — a guard for
+// callers parsing untrusted SQL. Raise or lower it at startup if you handle
+// legitimately larger (or want to cap smaller) statements; it is read without
+// synchronisation, so set it before concurrent use.
+var MaxInputBytes = 16 << 20 // 16 MiB
+
 // Tokenize scans the entire input into a token slice terminated by TokenEOF.
 // The slice is pre-sized from the input length to minimise reallocation.
 func (l *Lexer) Tokenize() ([]Token, error) {
+	if len(l.src) > MaxInputBytes {
+		return nil, &SyntaxError{Pos: 0, Msg: fmt.Sprintf("input of %d bytes exceeds MaxInputBytes (%d)", len(l.src), MaxInputBytes)}
+	}
 	toks := make([]Token, 0, len(l.src)/4+8)
 	for {
 		t := l.Next()
 		if t.Type == TokenError {
-			return toks, &SyntaxError{Pos: t.Pos, Msg: t.Val}
+			return toks, newSyntaxError(l.src, t.Pos, t.Val)
 		}
 		toks = append(toks, t)
 		if t.Type == TokenEOF {
