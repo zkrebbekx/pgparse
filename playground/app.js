@@ -94,7 +94,9 @@ window.onPgparseReady = () => {
 };
 (function boot() {
   const go = new Go();
-  WebAssembly.instantiateStreaming(fetch("pgparse.wasm"), go.importObject)
+  // no-cache forces revalidation so a redeployed wasm is picked up (the
+  // filename is stable across deploys).
+  WebAssembly.instantiateStreaming(fetch("pgparse.wasm", { cache: "no-cache" }), go.importObject)
     .then((r) => go.run(r.instance))
     .catch((e) => { $("loader").innerHTML = "<span>failed to load wasm: " + e + "</span>"; });
 })();
@@ -263,7 +265,10 @@ function formatSQL(sql) {
         stack.push("sub"); trim(); out += " (\n" + IND(indentN());
         i++; while (sql[i] === " ") i++; continue;
       }
-      if (isCreate && stack.length === 0) {
+      const prev = out.replace(/\s+$/, "");
+      // CREATE TABLE column list, multi-column UPDATE SET (cols), and its value
+      // list ") = (" all break one item per line.
+      if ((isCreate && stack.length === 0) || /\bSET$/.test(prev) || /\)\s*=$/.test(prev)) {
         stack.push("list"); trim(); out += " (\n" + IND(indentN());
         i++; while (sql[i] === " ") i++; continue;
       }
