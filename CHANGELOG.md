@@ -16,6 +16,10 @@ First stable release. The public API is now covered by Semantic Versioning.
 - Runnable godoc examples for `Parse`, `Deparse`, `Mutates`, and `Walk`.
 - `CONTRIBUTING.md`.
 
+### Fixed
+- `position(substr IN string)` parsed the substring at full expression
+  precedence and swallowed the `IN`; it now stops below comparison level.
+
 ### Changed
 - **API freeze for 1.0.** Unexported internal types that had no usable public
   surface: `Parser`, `Keyword`, and the `Token.Kw` field. The public API is

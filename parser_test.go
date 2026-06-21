@@ -493,6 +493,15 @@ func TestErrors(t *testing.T) {
 			"INSERT users VALUES (1)",
 			"SELECT * FROM t WHERE",
 			"UPDATE t SET",
+			"SELECT CAST(x)",                    // CAST without AS
+			"SELECT extract(x)",                 // extract without FROM
+			"SELECT position(a b)",              // position without IN
+			"SELECT a COLLATE 1",                // bad collation name
+			"SELECT * FROM t WHERE a IN 1",      // IN without (
+			"SELECT * FROM t WHERE a BETWEEN 1", // BETWEEN without AND
+			"SELECT sum(x) OVER (RANGE foo)",    // bad frame bound
+			"SELECT 1 +",                        // dangling operator
+			"WITH x SELECT 1",                   // CTE without AS
 		}
 		Convey("When each is parsed", func() {
 			Convey("Then every case yields a syntax error, not a panic", func() {

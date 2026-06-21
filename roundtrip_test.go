@@ -58,6 +58,16 @@ func TestRoundTrip(t *testing.T) {
 			"SELECT a, sum(b) FROM t GROUP BY CUBE (a) ORDER BY a USING <",
 			"WITH RECURSIVE t (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t) SEARCH DEPTH FIRST BY n SET ord SELECT * FROM t",
 			"SELECT sum(x) OVER (ORDER BY t ROWS CURRENT ROW EXCLUDE TIES) FROM s",
+			"SELECT -a + +b, ~c FROM t",
+			"SELECT * FROM t WHERE a IS NOT TRUE AND b IS FALSE AND c IS NOT DISTINCT FROM d AND e IS NULL",
+			"SELECT x COLLATE \"C\", position('a' IN b), trim('x'), extract(year FROM d) FROM t",
+			"WITH RECURSIVE t (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t) SEARCH BREADTH FIRST BY n SET ord CYCLE n SET cyc USING pth SELECT * FROM t",
+			"SELECT CAST(a AS int), ARRAY(SELECT id FROM t) FROM x",
+			`SELECT a COLLATE pg_catalog."C" FROM t`,
+			"ALTER TABLE t ALTER COLUMN c SET DEFAULT 0, ALTER COLUMN d DROP DEFAULT, ALTER COLUMN e SET NOT NULL, ALTER COLUMN f DROP NOT NULL",
+			"DELETE FROM t USING u WHERE t.id = u.id",
+			"DROP VIEW v; DROP SEQUENCE s; DROP INDEX i",
+			"WITH RECURSIVE t (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t) CYCLE n SET cyc TO true DEFAULT false USING pth SELECT * FROM t",
 		}
 
 		Convey("When parsed, deparsed, and re-parsed", func() {

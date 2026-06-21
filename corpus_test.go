@@ -90,6 +90,8 @@ func TestCorpusExercise(t *testing.T) {
 					_ = res.ReadOnly()
 					for _, st := range res.Stmts {
 						_ = Classify(st)
+						// Exercise the AST walker over every parsed statement.
+						Walk(st, func(Node) bool { return true })
 						out := Deparse(st)
 						// Deparse round-trip: re-parse and re-deparse.
 						if r2, e2 := Parse(out); e2 == nil {

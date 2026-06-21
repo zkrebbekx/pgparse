@@ -24,6 +24,28 @@ func TestSyntaxErrorPosition(t *testing.T) {
 	})
 }
 
+func TestParseOneErrors(t *testing.T) {
+	Convey("Given ParseOne", t, func() {
+		Convey("When given multiple statements", func() {
+			_, err := ParseOne("SELECT 1; SELECT 2")
+			Convey("Then it errors (expected exactly one)", func() {
+				So(err, ShouldNotBeNil)
+			})
+		})
+		Convey("When given invalid SQL", func() {
+			_, err := ParseOne("SELECT FROM")
+			Convey("Then it errors", func() { So(err, ShouldNotBeNil) })
+		})
+		Convey("When given a single valid statement", func() {
+			s, err := ParseOne("SELECT 1")
+			Convey("Then it returns it", func() {
+				So(err, ShouldBeNil)
+				So(s, ShouldHaveSameTypeAs, &SelectStmt{})
+			})
+		})
+	})
+}
+
 func TestMaxInputBytes(t *testing.T) {
 	Convey("Given an input larger than MaxInputBytes", t, func() {
 		orig := MaxInputBytes

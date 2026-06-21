@@ -75,8 +75,9 @@ func (p *parser) parseSpecialArgs(fc *FuncCall) error {
 		return nil
 
 	case "position":
-		// position(substr IN string)
-		needle, err := p.parseExpr()
+		// position(substr IN string) — parse the needle below comparison level
+		// so it does not swallow the IN.
+		needle, err := p.parseOtherOp()
 		if err != nil {
 			return err
 		}
