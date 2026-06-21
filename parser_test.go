@@ -474,6 +474,27 @@ func TestDepthGuard(t *testing.T) {
 		})
 	})
 
+	Convey("Given prefix-operator and array runs that recurse outside parseExpr", t, func() {
+		// These paths (NOT, unary -/+/~, ARRAY[) self-recurse without passing
+		// through parseExpr, so they must carry their own depth guard or they
+		// overflow the stack — a crash recover() cannot catch.
+		n := 100000
+		cases := map[string]string{
+			"NOT run":       "SELECT " + strings.Repeat("NOT ", n) + "x",
+			"unary - run":   "SELECT " + strings.Repeat("- ", n) + "1",
+			"unary + run":   "SELECT " + strings.Repeat("+ ", n) + "1",
+			"unary ~ run":   "SELECT " + strings.Repeat("~ ", n) + "1",
+			"nested ARRAY[": "SELECT ARRAY" + strings.Repeat("[", n) + "1" + strings.Repeat("]", n),
+		}
+		Convey("When parsed, each returns an error instead of crashing", func() {
+			for name, sql := range cases {
+				_, err := Parse(sql)
+				So(err, ShouldNotBeNil)
+				_ = name
+			}
+		})
+	})
+
 	Convey("Given a reasonably nested expression", t, func() {
 		ok := "SELECT " + strings.Repeat("(", 50) + "1 + 2" + strings.Repeat(")", 50)
 		Convey("When parsed", func() {
@@ -481,6 +502,13 @@ func TestDepthGuard(t *testing.T) {
 			Convey("Then it parses normally (within the limit)", func() {
 				So(err, ShouldBeNil)
 			})
+		})
+	})
+
+	Convey("Given a few legitimate prefix operators", t, func() {
+		Convey("When parsed, they still work", func() {
+			_, err := Parse("SELECT NOT NOT TRUE, - - 1, ~ ~ 5, ARRAY[ARRAY[1,2]]")
+			So(err, ShouldBeNil)
 		})
 	})
 }

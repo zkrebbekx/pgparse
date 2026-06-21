@@ -27,6 +27,10 @@ func FuzzParse(f *testing.F) {
 		"ALTER TABLE t ADD COLUMN c int, DROP CONSTRAINT x CASCADE",
 		"DROP VIEW IF EXISTS a, b RESTRICT",
 		"((((SELECT 1))))",
+		// prefix/array recursion vectors that bypass parseExpr's depth guard
+		"SELECT NOT NOT NOT NOT x",
+		"SELECT - - - - 1", "SELECT + + + 1", "SELECT ~ ~ ~ 1",
+		"SELECT ARRAY[[[[1]]]]",
 		"SELECT '''", "SELECT $tag$", "/* unclosed",
 		"SELECT 1 UNION SELECT 2 INTERSECT SELECT 3 EXCEPT SELECT 4",
 	}

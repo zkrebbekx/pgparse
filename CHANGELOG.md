@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.1.1] — 2026-06-22
+
+### Fixed
+- **Stack overflow on adversarial input (security).** Prefix operators (`NOT`,
+  unary `-`/`+`/`~`) and multidimensional `ARRAY[` literals recurse outside
+  `parseExpr`, so they bypassed the recursion-depth guard: a single ≤16 MiB
+  `Parse` call of e.g. `NOT NOT NOT …` or `- - - …` or `ARRAY[[[ …` could
+  overflow the goroutine stack — a fatal runtime error that `recover()` cannot
+  catch, crashing the process. These paths now enforce `maxNestingDepth` like
+  every other recursion, closing a hole in the "safe on untrusted input"
+  guarantee. Added regression tests for each vector and fuzz seeds. Thanks to an
+  external security review for the report.
+
 ## [1.1.0] — 2026-06-22
 
 Grammar coverage of the PostgreSQL regression suite rises from 97.8% to **99.4%**.
@@ -100,7 +113,8 @@ First stable release. The public API is now covered by Semantic Versioning.
   subqueries, set operations, window functions, the scalar expression grammar,
   and an idiomatic typed AST. No cgo, no WebAssembly runtime.
 
-[Unreleased]: https://github.com/zkrebbekx/pgparse/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/zkrebbekx/pgparse/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/zkrebbekx/pgparse/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/zkrebbekx/pgparse/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/zkrebbekx/pgparse/compare/v0.3.2...v1.0.0
 [0.3.2]: https://github.com/zkrebbekx/pgparse/compare/v0.3.1...v0.3.2

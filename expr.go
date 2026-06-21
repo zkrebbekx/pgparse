@@ -55,7 +55,13 @@ func (p *parser) parseAnd() (Expr, error) {
 func (p *parser) parseNot() (Expr, error) {
 	if p.isKw(kwNot) {
 		p.advance()
+		// NOT recurses into itself; guard the depth so NOT NOT NOT … cannot
+		// overflow the stack (an unrecoverable crash).
+		if err := p.enter(); err != nil {
+			return nil, err
+		}
 		operand, err := p.parseNot()
+		p.leave()
 		if err != nil {
 			return nil, err
 		}
@@ -178,6 +184,11 @@ func (p *parser) parseArray() (Expr, error) {
 // parseArrayBrackets parses a "[...]" array literal whose elements may be nested
 // "[...]" sub-arrays (multidimensional arrays).
 func (p *parser) parseArrayBrackets() (Expr, error) {
+	// Nested "[[[ …" recurses here; guard the depth to avoid a stack overflow.
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+	defer p.leave()
 	p.advance() // [
 	a := &ArrayExpr{}
 	if p.cur().Type != TokenRBracket {
@@ -360,28 +371,34 @@ func (p *parser) parseMultiplicative() (Expr, error) {
 }
 
 func (p *parser) parseUnary() (Expr, error) {
+	var op string
 	switch {
 	case p.cur().Type == TokenMinus:
-		p.advance()
-		operand, err := p.parseUnary()
-		if err != nil {
-			return nil, err
-		}
-		return &UnaryExpr{Op: "-", Operand: operand}, nil
+		op = "-"
 	case p.cur().Type == TokenPlus:
-		p.advance()
-		return p.parseUnary()
+		op = "+"
 	case p.cur().Type == TokenOp && p.cur().Val == "~":
 		// Prefix bitwise NOT (the same token is the infix regex-match operator,
 		// disambiguated by position).
-		p.advance()
-		operand, err := p.parseUnary()
-		if err != nil {
-			return nil, err
-		}
-		return &UnaryExpr{Op: "~", Operand: operand}, nil
+		op = "~"
+	default:
+		return p.parsePostfix()
 	}
-	return p.parsePostfix()
+	p.advance()
+	// Prefix operators recurse into parseUnary; guard the depth so a run of
+	// "- - - …" / "~ ~ ~ …" cannot overflow the stack (an unrecoverable crash).
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+	operand, err := p.parseUnary()
+	p.leave()
+	if err != nil {
+		return nil, err
+	}
+	if op == "+" {
+		return operand, nil // unary plus is a no-op
+	}
+	return &UnaryExpr{Op: op, Operand: operand}, nil
 }
 
 // parsePostfix handles trailing :: casts and array subscripts a[i] / a[lo:hi]
