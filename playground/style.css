@@ -87,7 +87,12 @@ main { display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:14px 18px;
 .speed.flash { transform:scale(1.07); }
 
 /* tabs */
-.tabs { display:flex; gap:4px; padding:8px 10px 0; }
+.tabs { display:flex; align-items:center; gap:4px; padding:8px 10px 0; }
+.treebtn { margin-left:auto; font:600 11.5px var(--sans); color:var(--accent);
+  background:transparent; border:1px solid var(--border); border-radius:7px;
+  padding:4px 10px; cursor:pointer; transition:background .15s,border-color .15s; }
+.treebtn:hover { background:var(--accent-weak); border-color:var(--accent); }
+.treebtn.hidden { display:none; }
 .tab { font:600 12.5px var(--sans); color:var(--muted); background:transparent; border:0;
   border-bottom:2px solid transparent; padding:6px 10px; cursor:pointer; }
 .tab:hover { color:var(--ink); }

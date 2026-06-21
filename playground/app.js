@@ -121,8 +121,19 @@ document.querySelectorAll(".tab").forEach((t) =>
     document.querySelectorAll(".tabpane").forEach((x) => x.classList.remove("active"));
     t.classList.add("active");
     $("tab-" + t.dataset.tab).classList.add("active");
+    $("expand").classList.toggle("hidden", t.dataset.tab !== "tree");
   })
 );
+
+// --- expand / collapse the whole AST ---
+let treeExpanded = false;
+function setExpandLabel() { $("expand").textContent = treeExpanded ? "Collapse all" : "Expand all"; }
+$("expand").addEventListener("click", () => {
+  treeExpanded = !treeExpanded;
+  document.querySelectorAll("#tab-tree .node.collapsible")
+    .forEach((n) => n.classList.toggle("closed", !treeExpanded));
+  setExpandLabel();
+});
 
 // --- live parsing ---
 let deb = null;
@@ -190,6 +201,7 @@ function renderTree(stmts) {
     root.appendChild(buildNode(s.ast, null, true));
   });
   const host = $("tab-tree"); host.innerHTML = ""; host.appendChild(root);
+  treeExpanded = false; setExpandLabel();
 }
 
 function buildNode(value, fieldName, open) {
