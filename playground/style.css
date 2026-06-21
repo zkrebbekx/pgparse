@@ -45,6 +45,13 @@ body {
 /* layout — natural document scroll (mobile-safe) */
 main { display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:14px 18px; align-items:start; }
 @media (max-width:860px){ main{ grid-template-columns:1fr; } }
+/* Desktop: stretch the panels to fill the viewport instead of sitting at the top. */
+@media (min-width:861px){
+  body { display:flex; flex-direction:column; }
+  main { flex:1; min-height:0; align-items:stretch; grid-template-rows:minmax(0,1fr); }
+  #sql { flex:1; }
+  .tabbody { max-height:none; }
+}
 .panel { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
   display:flex; flex-direction:column; overflow:hidden; }
 
