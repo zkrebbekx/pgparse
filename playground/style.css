@@ -45,12 +45,16 @@ body {
 /* layout — natural document scroll (mobile-safe) */
 main { display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:14px 18px; align-items:start; }
 @media (max-width:860px){ main{ grid-template-columns:1fr; } }
-/* Desktop: stretch the panels to fill the viewport instead of sitting at the top. */
+/* Desktop: stretch the panels to fill the viewport instead of sitting at the top.
+   The min-height:0 chain lets the flex children actually size to the panel, and
+   the editor textarea's 300px floor is lifted so it grows to fill. */
 @media (min-width:861px){
-  body { display:flex; flex-direction:column; }
-  main { flex:1; min-height:0; align-items:stretch; grid-template-rows:minmax(0,1fr); }
-  #sql { flex:1; }
-  .tabbody { max-height:none; }
+  html, body { height:100%; }
+  body { display:flex; flex-direction:column; overflow:hidden; }
+  main { flex:1 1 auto; min-height:0; align-items:stretch; grid-template-rows:1fr; }
+  .panel { min-height:0; height:100%; }
+  #sql { flex:1 1 0%; min-height:0; }
+  .tabbody { flex:1 1 0%; min-height:0; max-height:none; }
 }
 .panel { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
   display:flex; flex-direction:column; overflow:hidden; }
