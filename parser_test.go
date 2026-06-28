@@ -553,3 +553,44 @@ func TestErrors(t *testing.T) {
 		})
 	})
 }
+
+func TestKeywordAttrName(t *testing.T) {
+	Convey("Given a qualified column whose attribute name is a reserved keyword", t, func() {
+		Convey("When parsed in ORDER BY", func() {
+			s, err := ParseOne("SELECT t.id FROM things t ORDER BY t.order")
+			Convey("Then the keyword is accepted as the attribute name", func() {
+				So(err, ShouldBeNil)
+				sel := s.(*SelectStmt)
+				So(len(sel.OrderBy), ShouldEqual, 1)
+				ref := sel.OrderBy[0].Expr.(*ColumnRef)
+				So(ref.Parts, ShouldResemble, []string{"t", "order"})
+			})
+		})
+
+		Convey("When several reserved keywords are used as attribute names in the projection", func() {
+			s, err := ParseOne("SELECT t.order, t.group, t.limit, t.select FROM things t")
+			Convey("Then each parses as a qualified column reference", func() {
+				So(err, ShouldBeNil)
+				sel := s.(*SelectStmt)
+				So(len(sel.Columns), ShouldEqual, 4)
+				So(sel.Columns[0].Expr.(*ColumnRef).Parts, ShouldResemble, []string{"t", "order"})
+				So(sel.Columns[3].Expr.(*ColumnRef).Parts, ShouldResemble, []string{"t", "select"})
+			})
+		})
+
+		Convey("When the keyword follows a parenthesized expression (field selection)", func() {
+			s, err := ParseOne("SELECT (t).order FROM things t")
+			Convey("Then it parses as a field selection", func() {
+				So(err, ShouldBeNil)
+				So(s.(*SelectStmt).Columns[0].Expr, ShouldHaveSameTypeAs, &FieldExpr{})
+			})
+		})
+
+		Convey("When a bare reserved keyword is used unqualified", func() {
+			_, err := ParseOne("SELECT order FROM things")
+			Convey("Then it is still rejected, matching PostgreSQL", func() {
+				So(err, ShouldNotBeNil)
+			})
+		})
+	})
+}

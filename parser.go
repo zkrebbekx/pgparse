@@ -1142,6 +1142,18 @@ func (p *parser) parseIdent(what string) (string, error) {
 	return identText(t), nil
 }
 
+// parseAttrName reads an attribute name following a '.', e.g. the "order" in
+// "t.order". Postgres allows any keyword (reserved included) as a ColLabel in
+// this position, so a bare identifier or any keyword token is accepted.
+func (p *parser) parseAttrName(what string) (string, error) {
+	t := p.cur()
+	if t.Type != TokenIdent && t.Type != TokenKeyword {
+		return "", p.errf(t, "expected %s", what)
+	}
+	p.advance()
+	return identText(t), nil
+}
+
 // identText strips surrounding double quotes from a quoted identifier.
 func identText(t Token) string {
 	v := t.Val

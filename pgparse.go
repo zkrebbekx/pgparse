@@ -18,7 +18,18 @@
 //	sel := res.Stmts[0].(*pgparse.SelectStmt)
 package pgparse
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
+
+// tokBufPool recycles the token backing array across parses. The token slice is
+// pure scratch: the AST copies out the strings it keeps (identText / unquote),
+// so no Token value escapes a single Parse call and the buffer is safe to reuse.
+var tokBufPool = sync.Pool{New: func() any {
+	b := make([]Token, 0, 64)
+	return &b
+}}
 
 // ParseResult holds the statements produced from one input string.
 type ParseResult struct {
@@ -45,7 +56,14 @@ func Parse(sql string) (res *ParseResult, err error) {
 // parseInternal does the real work without the panic guard, so the fuzz target
 // can surface any panic as a test failure rather than masking it.
 func parseInternal(sql string) (*ParseResult, error) {
-	toks, err := NewLexer(sql).Tokenize()
+	bufp := tokBufPool.Get().(*[]Token)
+	toks, err := NewLexer(sql).tokenizeInto((*bufp)[:0])
+	// toks may have been reallocated to a larger backing array by append; keep
+	// whichever array we ended with so the pool retains the grown capacity.
+	defer func() {
+		*bufp = toks[:0]
+		tokBufPool.Put(bufp)
+	}()
 	if err != nil {
 		return nil, err
 	}

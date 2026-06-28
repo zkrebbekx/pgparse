@@ -29,7 +29,18 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 	if len(l.src) > MaxInputBytes {
 		return nil, &SyntaxError{Pos: 0, Msg: fmt.Sprintf("input of %d bytes exceeds MaxInputBytes (%d)", len(l.src), MaxInputBytes)}
 	}
-	toks := make([]Token, 0, len(l.src)/4+8)
+	return l.tokenizeInto(make([]Token, 0, len(l.src)/4+8))
+}
+
+// tokenizeInto scans the entire input, appending tokens to dst (which the
+// caller has pre-sliced to length 0). It returns the grown slice. The internal
+// parse path passes a pooled buffer here to avoid a per-parse backing-array
+// allocation; the buffer must already have passed the MaxInputBytes check.
+func (l *Lexer) tokenizeInto(dst []Token) ([]Token, error) {
+	if len(l.src) > MaxInputBytes {
+		return nil, &SyntaxError{Pos: 0, Msg: fmt.Sprintf("input of %d bytes exceeds MaxInputBytes (%d)", len(l.src), MaxInputBytes)}
+	}
+	toks := dst
 	for {
 		t := l.Next()
 		if t.Type == TokenError {

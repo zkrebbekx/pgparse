@@ -96,7 +96,7 @@ window.onPgparseReady = () => {
   const go = new Go();
   // no-cache forces revalidation so a redeployed wasm is picked up (the
   // filename is stable across deploys).
-  WebAssembly.instantiateStreaming(fetch("pgparse.wasm?v=7", { cache: "no-cache" }), go.importObject)
+  WebAssembly.instantiateStreaming(fetch("pgparse.wasm?v=8", { cache: "no-cache" }), go.importObject)
     .then((r) => go.run(r.instance))
     .catch((e) => { $("loader").innerHTML = "<span>failed to load wasm: " + e + "</span>"; });
 })();

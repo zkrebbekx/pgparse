@@ -351,21 +351,28 @@ running tens of thousands of overlapping parses.
 
 Hand-written byte scanner (no regex) producing tokens whose values alias the
 source string, feeding a single-pass recursive-descent parser. No reflection,
-no intermediate string copies in the hot path.
+no intermediate string copies in the hot path. The token slice is recycled from
+a `sync.Pool` across parses and dotted name parts are gathered on the stack, so
+each `Parse` allocates little beyond its own AST.
 
-Measured on Go 1.26 / arm64 (`go test -bench=. -benchmem`):
+Measured on Go 1.26 / arm64 (Apple M1 Pro, `go test -bench=. -benchmem`):
 
 ```
-BenchmarkParse/simple-10        774518     1564 ns/op   25.58 MB/s    1488 B/op    19 allocs/op
-BenchmarkParse/join-10          194725     6043 ns/op   41.04 MB/s    5168 B/op    65 allocs/op
-BenchmarkParse/cte_window-10    195241     6195 ns/op   49.56 MB/s    5752 B/op    64 allocs/op
-BenchmarkParse/expr_heavy-10    127866     9399 ns/op   27.66 MB/s   11984 B/op    90 allocs/op
-BenchmarkParse/insert-10        268135     4464 ns/op   43.23 MB/s    3448 B/op    41 allocs/op
-BenchmarkTokenize-10            399202     2997 ns/op   82.74 MB/s    3176 B/op    14 allocs/op
+BenchmarkParse/simple-10       1000000     1088 ns/op   36.78 MB/s     784 B/op    18 allocs/op
+BenchmarkParse/join-10          290331     4021 ns/op   61.67 MB/s    2120 B/op    54 allocs/op
+BenchmarkParse/cte_window-10    264198     4553 ns/op   67.43 MB/s    2641 B/op    63 allocs/op
+BenchmarkParse/expr_heavy-10    213777     5606 ns/op   46.38 MB/s    2881 B/op    87 allocs/op
+BenchmarkParse/insert-10        350032     3454 ns/op   55.88 MB/s    1656 B/op    54 allocs/op
+BenchmarkTokenize-10            581726     2001 ns/op  123.96 MB/s    3176 B/op    14 allocs/op
 ```
 
+Against v1.1.0 on the same machine, v1.2.0's token-buffer pooling and
+stack-gathered name parts cut memory **~55% (geomean, up to −76%)** and run
+**~6% faster (up to −14%** on expression-heavy input), at p<0.001 over n=10.
 Unlike cgo/wasm approaches, there is **no fixed startup memory cost** — a process
-that never parses pays nothing, and each parse allocates only its own AST.
+that never parses pays nothing, and each parse allocates only its own AST. Low
+per-parse allocation also keeps GC pressure — and therefore tail latency — down
+under sustained concurrent load.
 
 Reproduce:
 

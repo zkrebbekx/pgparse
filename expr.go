@@ -438,7 +438,7 @@ func (p *parser) parsePostfix() (Expr, error) {
 				p.advance()
 				e = &FieldExpr{Expr: e, Field: "*"}
 			} else {
-				field, err := p.parseIdent("field name after '.'")
+				field, err := p.parseAttrName("field name after '.'")
 				if err != nil {
 					return nil, err
 				}
@@ -665,15 +665,22 @@ func (p *parser) parseCastFunc() (Expr, error) {
 
 // parseNameOrCall parses a qualified name, a "table.*", or a function call.
 func (p *parser) parseNameOrCall() (Expr, error) {
-	parts := []string{identText(p.advance())}
+	// Gather the dotted name parts in a stack buffer first, then allocate the
+	// AST slice exactly once. A qualified ref like t.col would otherwise cost a
+	// 1-element slice plus an append-grow reallocation. parseCallTail only reads
+	// the parts, so passing the stack-backed slice to it does not escape.
+	var buf [4]string
+	parts := append(buf[:0], identText(p.advance()))
 	for p.cur().Type == TokenDot {
 		p.advance()
 		if p.cur().Type == TokenStar {
 			p.advance()
-			parts = append(parts, "*")
-			return &ColumnRef{Parts: parts}, nil
+			star := make([]string, len(parts)+1)
+			copy(star, parts)
+			star[len(parts)] = "*"
+			return &ColumnRef{Parts: star}, nil
 		}
-		id, err := p.parseIdent("name after '.'")
+		id, err := p.parseAttrName("name after '.'")
 		if err != nil {
 			return nil, err
 		}
@@ -690,7 +697,15 @@ func (p *parser) parseNameOrCall() (Expr, error) {
 	if p.cur().Type == TokenLParen {
 		return p.parseCallTail(parts)
 	}
-	return &ColumnRef{Parts: parts}, nil
+	return &ColumnRef{Parts: cloneParts(parts)}, nil
+}
+
+// cloneParts returns a heap copy of the (possibly stack-backed) name parts,
+// sized exactly, for storage in an AST node.
+func cloneParts(parts []string) []string {
+	out := make([]string, len(parts))
+	copy(out, parts)
+	return out
 }
 
 // parseCallTail parses the "( ... )" of a function call, given its name parts.

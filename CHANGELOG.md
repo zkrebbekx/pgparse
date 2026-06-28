@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-06-29
+
+### Added
+- **Reserved keywords are accepted as attribute names after `.`** — e.g.
+  `t.order`, `t.group`, `t.limit`, `(x).order`. PostgreSQL allows any keyword
+  (reserved included) in the `ColLabel` position following a `.`; pgparse
+  previously rejected these with `expected name after '.'`. A bare unqualified
+  reserved keyword (`SELECT order`) is still rejected, matching PostgreSQL.
+
+### Changed
+- **Performance: ~60% less memory allocated per parse, ~5–14% faster.** Two
+  allocation cuts, no API or AST change:
+  - The lexer's token slice is now drawn from a `sync.Pool` on the internal
+    parse path, eliminating a per-parse backing-array allocation (it was ~59% of
+    all bytes allocated). The token slice is pure scratch — the AST copies out
+    every string it keeps — so reuse is safe, and `Parse` remains safe for
+    concurrent use. The exported `Tokenize` is unchanged.
+  - Dotted name parts are gathered in a stack buffer and the AST slice is sized
+    once, removing the append-grow reallocation on qualified references like
+    `t.col`.
+  - Measured deltas (`go test -bench`): bytes/op −49% to −76% (geomean −61%),
+    time −5% to −14% (geomean −7%), allocs/op down across the board.
+
 ## [1.1.1] — 2026-06-22
 
 ### Fixed
