@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-07-02
+
 ### Security
 - **Fixed an unrecoverable stack-overflow DoS on long operator chains.** The
   depth guard previously counted only recursive-descent nesting, so input that
@@ -166,7 +168,9 @@ First stable release. The public API is now covered by Semantic Versioning.
   subqueries, set operations, window functions, the scalar expression grammar,
   and an idiomatic typed AST. No cgo, no WebAssembly runtime.
 
-[Unreleased]: https://github.com/zkrebbekx/pgparse/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/zkrebbekx/pgparse/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/zkrebbekx/pgparse/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/zkrebbekx/pgparse/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/zkrebbekx/pgparse/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/zkrebbekx/pgparse/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/zkrebbekx/pgparse/compare/v0.3.2...v1.0.0
