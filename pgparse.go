@@ -40,10 +40,14 @@ type ParseResult struct {
 // separated statements. It returns a *SyntaxError on the first failure.
 //
 // Parse is safe on untrusted input: any internal panic is recovered and
-// returned as an error, a recursion-depth limit rejects pathologically nested
-// input (which would otherwise overflow the stack — a crash recover cannot
-// catch), and MaxInputBytes bounds the input size. It holds no shared state and
-// is safe to call concurrently from multiple goroutines.
+// returned as an error; a depth limit bounds the AST it builds — rejecting both
+// deeply nested and long left-associative-chain input (a+a+…+a, t JOIN t JOIN …,
+// SELECT…UNION…) that would otherwise produce a tree too deep to traverse — so
+// that recursive consumers of the result (Deparse, Walk) cannot overflow the
+// stack; and MaxInputBytes and MaxNodes bound input size and node count. A stack
+// overflow is a fatal error that recover cannot catch, which is why the depth
+// bound is enforced during parsing rather than relied on afterwards. Parse holds
+// no shared state and is safe to call concurrently from multiple goroutines.
 func Parse(sql string) (res *ParseResult, err error) {
 	defer func() {
 		if r := recover(); r != nil {

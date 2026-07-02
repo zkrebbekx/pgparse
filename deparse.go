@@ -500,6 +500,14 @@ func (d *deparser) expr(e Expr) {
 			d.ws(" ")
 		} else {
 			d.ws(x.Op)
+			// A space keeps a symbolic prefix operator from merging with an
+			// operand that itself begins with an operator character: ~ ~ x would
+			// otherwise emit ~~x (one operator token), - -x would emit --x (a line
+			// comment), and -* would emit -* (one operator). All three fail to
+			// re-parse.
+			if startsWithOpChar(x.Operand) {
+				d.ws(" ")
+			}
 		}
 		d.expr(x.Operand)
 	case *FuncCall:
@@ -671,7 +679,7 @@ func (d *deparser) funcCall(f *FuncCall) {
 		d.ws(quoteIdent(f.Schema))
 		d.ws(".")
 	}
-	d.ws(f.Name)
+	d.ws(quoteIdent(f.Name))
 	d.ws("(")
 	if f.Star {
 		d.ws("*")
@@ -911,6 +919,28 @@ func (d *deparser) targetList(names []string) {
 		}
 		d.ws(n)
 	}
+}
+
+// startsWithOpChar reports whether e deparses to text that begins with an
+// operator character, which would merge with a preceding symbolic prefix
+// operator into a single token. Only a symbolic unary operand or a bare star can
+// do so; every other expression begins with an identifier, literal, quote, or
+// '('. It follows the leftmost-emitted child through the postfix wrappers, whose
+// base is rendered first.
+func startsWithOpChar(e Expr) bool {
+	switch x := e.(type) {
+	case *UnaryExpr:
+		return !isWordOp(x.Op)
+	case *Star:
+		return true
+	case *SubscriptExpr:
+		return startsWithOpChar(x.Base)
+	case *FieldExpr:
+		return startsWithOpChar(x.Expr)
+	case *CollateExpr:
+		return startsWithOpChar(x.Expr)
+	}
+	return false
 }
 
 // isWordOp reports whether a unary operator is an alphabetic word (needing a

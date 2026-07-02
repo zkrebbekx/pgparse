@@ -355,16 +355,20 @@ no intermediate string copies in the hot path. The token slice is recycled from
 a `sync.Pool` across parses and dotted name parts are gathered on the stack, so
 each `Parse` allocates little beyond its own AST.
 
-Measured on Go 1.26 / arm64 (Apple M1 Pro, `go test -bench=. -benchmem`):
+Measured on Go 1.26.4 / arm64 (Apple M1 Pro, `go test -bench=. -benchmem`):
 
 ```
-BenchmarkParse/simple-10       1000000     1088 ns/op   36.78 MB/s     784 B/op    18 allocs/op
-BenchmarkParse/join-10          290331     4021 ns/op   61.67 MB/s    2120 B/op    54 allocs/op
-BenchmarkParse/cte_window-10    264198     4553 ns/op   67.43 MB/s    2641 B/op    63 allocs/op
-BenchmarkParse/expr_heavy-10    213777     5606 ns/op   46.38 MB/s    2881 B/op    87 allocs/op
-BenchmarkParse/insert-10        350032     3454 ns/op   55.88 MB/s    1656 B/op    54 allocs/op
-BenchmarkTokenize-10            581726     2001 ns/op  123.96 MB/s    3176 B/op    14 allocs/op
+BenchmarkParse/simple-10       1113415     1037 ns/op   38.57 MB/s     784 B/op    18 allocs/op
+BenchmarkParse/join-10          316053     3874 ns/op   64.02 MB/s    2120 B/op    54 allocs/op
+BenchmarkParse/cte_window-10    271872     4395 ns/op   69.85 MB/s    2641 B/op    63 allocs/op
+BenchmarkParse/expr_heavy-10    215407     5412 ns/op   48.04 MB/s    2881 B/op    87 allocs/op
+BenchmarkParse/insert-10        331942     3351 ns/op   57.60 MB/s    1656 B/op    54 allocs/op
+BenchmarkTokenize-10            630588     1919 ns/op  129.26 MB/s    3176 B/op    14 allocs/op
 ```
+
+The depth and node-count guards that make `Parse` safe on untrusted input (see
+[Stability](#stability)) add no allocations and no measurable time to the hot
+path — the figures above are unchanged from before they were added.
 
 Against v1.1.0 on the same machine, v1.2.0's token-buffer pooling and
 stack-gathered name parts cut memory **~55% (geomean, up to −76%)** and run
@@ -388,9 +392,9 @@ around the real PostgreSQL parser. Apple M-series, `go test -bench=Corpus -bench
 
 | Engine | ns / query | B / query | allocs / query |
 |---|--:|--:|--:|
-| **pgparse** | **~14,200** | **~9,700** | **~94** |
-| `pg_query_go` v6 | ~376,000 | ~17,700 | ~392 |
-| **pgparse advantage** | **~26× faster** | **~2× less** | **~4× fewer** |
+| **pgparse** | **~8,400** | **~3,900** | **~89** |
+| `pg_query_go` v6 | ~328,000 | ~17,700 | ~392 |
+| **pgparse advantage** | **~38× faster** | **~4.5× less** | **~4× fewer** |
 
 `pg_query_go` does strictly *more* — it produces the full-fidelity PostgreSQL
 node tree for **every** statement kind. Its per-call cost includes the cgo
@@ -420,7 +424,8 @@ As of `v1.0.0` the public API is covered by SemVer:
   and new statement/expression kinds may be **added** (so always include a
   default case when type-switching over `Stmt`/`Expr`); fields and types are not
   removed or renamed except in a new major version.
-- `Parse` never panics and bounds recursion and input size.
+- `Parse` never panics and bounds AST depth, input size (`MaxInputBytes`), and
+  node count (`MaxNodes`).
 
 Check the [CHANGELOG](CHANGELOG.md) before upgrading.
 
@@ -429,10 +434,12 @@ Safety on untrusted input and the limits of `Mutates`/`Classify` are described i
 
 ## Security
 
-Run on untrusted input safely: `Parse` never panics, recursion depth is bounded,
-and `MaxInputBytes` caps input size. See [SECURITY.md](SECURITY.md) for the
-threat model and how to report a vulnerability. Note that `Mutates`/`Classify`
-is a syntactic hint, **not** a security control.
+Run on untrusted input safely: `Parse` never panics, the AST depth it builds is
+bounded (so nested *and* chained input cannot overflow the stack of `Parse`,
+`Deparse`, `Walk`, or a caller's own tree walk), and `MaxInputBytes` / `MaxNodes`
+cap input size and node count. See [SECURITY.md](SECURITY.md) for the threat
+model and how to report a vulnerability. Note that `Mutates`/`Classify` is a
+syntactic hint, **not** a security control.
 
 ## License
 

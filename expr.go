@@ -27,13 +27,21 @@ func (p *parser) parseOr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	// mark restores the depth this chain adds once it is complete, so sibling
+	// expressions do not inherit it. Only the success path needs restoring: on an
+	// error the whole parser is discarded, so a leftover increment is harmless.
+	mark := p.depth
 	for p.acceptKw(kwOr) {
+		if err := p.enter(); err != nil {
+			return nil, err
+		}
 		right, err := p.parseAnd()
 		if err != nil {
 			return nil, err
 		}
 		left = &BinaryExpr{Op: "OR", Left: left, Right: right}
 	}
+	p.depth = mark
 	return left, nil
 }
 
@@ -42,13 +50,18 @@ func (p *parser) parseAnd() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	mark := p.depth
 	for p.acceptKw(kwAnd) {
+		if err := p.enter(); err != nil {
+			return nil, err
+		}
 		right, err := p.parseNot()
 		if err != nil {
 			return nil, err
 		}
 		left = &BinaryExpr{Op: "AND", Left: left, Right: right}
 	}
+	p.depth = mark
 	return left, nil
 }
 
@@ -80,7 +93,13 @@ func (p *parser) parseComparison() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	mark := p.depth
 	for {
+		// Each pass that consumes an operator nests one level deeper; bound it so
+		// a chain cannot build a tree too deep for recursive consumers.
+		if err := p.enter(); err != nil {
+			return nil, err
+		}
 		if op, ok := compOps[p.cur().Type]; ok {
 			p.advance()
 			if p.isKw(kwAny) || p.isKw(kwSome) || p.isKw(kwAll) {
@@ -130,12 +149,14 @@ func (p *parser) parseComparison() (Expr, error) {
 			if not {
 				return nil, p.errf(p.cur(), "expected IN/BETWEEN/LIKE after NOT")
 			}
+			p.depth = mark
 			return left, nil
 		}
 		if err != nil {
 			return nil, err
 		}
 	}
+	p.depth = mark
 	return left, nil
 }
 
@@ -272,7 +293,11 @@ func (p *parser) parseOtherOp() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	mark := p.depth
 	for p.cur().Type == TokenOp || p.cur().Type == TokenConcat {
+		if err := p.enter(); err != nil {
+			return nil, err
+		}
 		op := p.advance().Val
 		if p.isKw(kwAny) || p.isKw(kwSome) || p.isKw(kwAll) {
 			left, err = p.parseAnyAll(op, left)
@@ -287,6 +312,7 @@ func (p *parser) parseOtherOp() (Expr, error) {
 		}
 		left = &BinaryExpr{Op: op, Left: left, Right: right}
 	}
+	p.depth = mark
 	return left, nil
 }
 
@@ -323,6 +349,7 @@ func (p *parser) parseAdditive() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	mark := p.depth
 	for {
 		var op string
 		switch p.cur().Type {
@@ -331,7 +358,11 @@ func (p *parser) parseAdditive() (Expr, error) {
 		case TokenMinus:
 			op = "-"
 		default:
+			p.depth = mark
 			return left, nil
+		}
+		if err := p.enter(); err != nil {
+			return nil, err
 		}
 		p.advance()
 		right, err := p.parseMultiplicative()
@@ -347,6 +378,7 @@ func (p *parser) parseMultiplicative() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	mark := p.depth
 	for {
 		var op string
 		switch p.cur().Type {
@@ -359,7 +391,11 @@ func (p *parser) parseMultiplicative() (Expr, error) {
 		case TokenCaret:
 			op = "^"
 		default:
+			p.depth = mark
 			return left, nil
+		}
+		if err := p.enter(); err != nil {
+			return nil, err
 		}
 		p.advance()
 		right, err := p.parseUnary()
@@ -408,7 +444,13 @@ func (p *parser) parsePostfix() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
+	mark := p.depth
 	for {
+		// Each postfix suffix (::cast, [subscript], .field, COLLATE) nests one
+		// level deeper; bound the chain so it cannot outgrow recursive consumers.
+		if err := p.enter(); err != nil {
+			return nil, err
+		}
 		if p.isWord("collate") {
 			p.advance()
 			coll, err := p.parseCollationName()
@@ -445,6 +487,7 @@ func (p *parser) parsePostfix() (Expr, error) {
 				e = &FieldExpr{Expr: e, Field: field}
 			}
 		default:
+			p.depth = mark
 			return e, nil
 		}
 	}
@@ -495,6 +538,12 @@ func (p *parser) parseSubscript(base Expr) (Expr, error) {
 }
 
 func (p *parser) parsePrimary() (Expr, error) {
+	// parsePrimary is the single choke point every expression atom passes
+	// through, so charging the node budget here bounds the whole tree's size
+	// (and, with it, memory-amplifying input like a giant VALUES or IN list).
+	if err := p.countNode(); err != nil {
+		return nil, err
+	}
 	t := p.cur()
 	switch t.Type {
 	case TokenNumber:

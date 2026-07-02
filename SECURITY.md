@@ -24,9 +24,18 @@ pgparse parses SQL text into an AST. It is designed to be safe to run on
 **untrusted input**:
 
 - `Parse` never panics — internal panics are recovered and returned as errors.
-- A recursion-depth limit rejects pathologically nested input instead of
-  overflowing the stack.
-- `MaxInputBytes` bounds input size to prevent unbounded memory allocation.
+- A depth limit bounds the AST that `Parse` builds, rejecting pathologically
+  nested *or chained* input (deeply nested parentheses, but also long
+  left-associative chains such as `a+a+…+a`, `t JOIN t JOIN …`, or
+  `SELECT…UNION…UNION…`, which build depth without recursing while parsing). This
+  protects two stacks: the parser's own, and — just as important — any recursive
+  consumer of the result. `Deparse`, `Walk`, and a caller's own tree walk can all
+  traverse any tree `Parse` returns without overflowing the stack. A stack
+  overflow is a fatal runtime error that `recover` cannot catch, so this is
+  enforced before the tree is returned.
+- `MaxInputBytes` bounds input size, and `MaxNodes` bounds the number of AST
+  atoms built from one input, to prevent unbounded memory allocation (including
+  memory-amplifying input that packs many nodes into few bytes).
 - It holds no shared mutable state and is safe for concurrent use.
 
 **Not in scope:** pgparse is **not a security control**. It parses a pragmatic

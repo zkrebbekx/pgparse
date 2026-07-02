@@ -47,6 +47,20 @@ func FuzzParse(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, sql string) {
 		// Unguarded path: a panic here fails the fuzz test.
-		_, _ = parseInternal(sql)
+		res, err := parseInternal(sql)
+		if err != nil || res == nil {
+			return
+		}
+		// Drive the recursive consumers of the parse tree, not just the parser.
+		// Parse bounds AST depth, so Walk and Deparse (both recursive) — and
+		// re-parsing the deparsed output — must complete without a panic or a
+		// stack overflow on any tree Parse returns. This is what makes the
+		// depth-guard regression fuzz-visible: parsing alone never touches these
+		// paths. (Exact re-parse fidelity is asserted separately on curated inputs
+		// in roundtrip_test.go; here the contract is only that nothing crashes.)
+		for _, s := range res.Stmts {
+			Walk(s, func(Node) bool { return true })
+			_, _ = parseInternal(Deparse(s))
+		}
 	})
 }
