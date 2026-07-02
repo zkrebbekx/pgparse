@@ -86,6 +86,12 @@ func TestRoundTrip(t *testing.T) {
 			"SELECT * FROM t FOR SHARE SKIP LOCKED",
 			"SELECT * FROM t FOR NO KEY UPDATE",
 			"SELECT * FROM t FOR KEY SHARE",
+			// Nested symbolic prefix operators must keep a separating space so they
+			// do not deparse into a single merged operator token (~~1) or a comment
+			// (--1).
+			"SELECT ~ ~ ~ 1, - - 1",
+			// Function names that need quoting must be quoted on the way out.
+			`SELECT "myFn"(a), "Weird Name"(b) FROM t`,
 		}
 
 		Convey("When parsed, deparsed, and re-parsed", func() {

@@ -13,17 +13,34 @@ type parser struct {
 	toks      []Token
 	pos       int
 	stmtStart int // token index where the current statement began
-	depth     int // current recursion depth (guards against stack overflow)
+	depth     int // current AST depth (guards against stack overflow)
+	nodes     int // running count of expression atoms built (guards memory)
 }
 
-// maxNestingDepth bounds recursive descent so that pathologically nested input
-// (e.g. a million parentheses) returns an error instead of overflowing the
-// stack — a crash that recover() cannot catch. Real SQL nests only a few levels
-// deep, so the limit is generous.
+// maxNestingDepth bounds the depth of the AST that Parse will build, so that
+// pathologically nested or chained input returns an error instead of producing a
+// tree too deep to traverse. This protects two stacks: the parser's own during
+// recursive descent (a million parentheses), and — just as important — any
+// recursive consumer of the result (Deparse, Walk, a caller's visitor) on a tree
+// that was built iteratively. Left-associative loops (a+a+…+a, t JOIN t JOIN …,
+// SELECT…UNION…) do not recurse while parsing but still build depth, so they
+// count against this limit too. A stack overflow is a fatal runtime error that
+// recover() cannot catch, so this must be enforced before the tree is returned.
+// Real SQL nests only a few levels deep, so the limit is generous.
 const maxNestingDepth = 1000
 
-// enter increases the recursion depth, returning an error if the nesting limit
-// is exceeded. Callers must pair it with a deferred leave.
+// MaxNodes bounds the number of expression atoms (leaf nodes such as literals,
+// column references, and parameters) Parse will build from one input. It is a
+// backstop against memory-amplifying input that packs many nodes into few bytes
+// (for example a huge VALUES or IN list), independent of the depth limit and of
+// MaxInputBytes. Inputs that exceed it return a *SyntaxError. Raise or lower it
+// at startup for legitimately larger statements; it is read without
+// synchronisation, so set it before concurrent use.
+var MaxNodes = 5_000_000
+
+// enter increases the AST depth, returning an error if the nesting limit is
+// exceeded. Callers must pair it with a deferred leave (for recursive descent)
+// or restore the depth with leaveTo (for the iterative operator loops).
 func (p *parser) enter() error {
 	p.depth++
 	if p.depth > maxNestingDepth {
@@ -33,6 +50,23 @@ func (p *parser) enter() error {
 }
 
 func (p *parser) leave() { p.depth-- }
+
+// leaveTo restores the depth counter to a mark taken before a left-associative
+// operator/join/set-op loop. Those loops bump the depth once per node they build
+// (via enter) so the tree they produce is bounded like nested input; leaveTo
+// unwinds the whole chain when the loop ends so sibling expressions do not
+// inherit its depth.
+func (p *parser) leaveTo(mark int) { p.depth = mark }
+
+// countNode charges one expression atom against the node budget, returning an
+// error once MaxNodes is exceeded.
+func (p *parser) countNode() error {
+	p.nodes++
+	if p.nodes > MaxNodes {
+		return newSyntaxError(p.src, p.cur().Pos, "input produces too many nodes (exceeds MaxNodes)")
+	}
+	return nil
+}
 
 // newParser constructs a parser over an already-lexed token slice.
 func newParser(src string, toks []Token) *parser { return &parser{src: src, toks: toks} }
@@ -356,6 +390,8 @@ func (p *parser) parseUnionExpr() (*SelectStmt, error) {
 	if err != nil {
 		return nil, err
 	}
+	mark := p.depth
+	defer p.leaveTo(mark)
 	for {
 		var op SetOpKind
 		switch {
@@ -365,6 +401,9 @@ func (p *parser) parseUnionExpr() (*SelectStmt, error) {
 			op = SetOpExcept
 		default:
 			return left, nil
+		}
+		if err := p.enter(); err != nil {
+			return nil, err
 		}
 		p.advance()
 		all := p.acceptKw(kwAll)
@@ -385,7 +424,12 @@ func (p *parser) parseIntersectExpr() (*SelectStmt, error) {
 	if err != nil {
 		return nil, err
 	}
+	mark := p.depth
+	defer p.leaveTo(mark)
 	for p.isKw(kwIntersect) {
+		if err := p.enter(); err != nil {
+			return nil, err
+		}
 		p.advance()
 		all := p.acceptKw(kwAll)
 		if !all {
@@ -788,6 +832,8 @@ func (p *parser) parseTableExpr() (TableExpr, error) {
 	if err != nil {
 		return nil, err
 	}
+	mark := p.depth
+	defer p.leaveTo(mark)
 	for {
 		natural := identIs(p.cur(), "natural")
 		if natural {
@@ -799,6 +845,9 @@ func (p *parser) parseTableExpr() (TableExpr, error) {
 				return nil, p.errf(p.cur(), "expected JOIN after NATURAL")
 			}
 			return left, nil
+		}
+		if err := p.enter(); err != nil {
+			return nil, err
 		}
 		right, on, using, err := p.parseJoinRHS(jk, natural)
 		if err != nil {

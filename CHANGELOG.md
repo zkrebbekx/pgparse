@@ -6,6 +6,36 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Security
+- **Fixed an unrecoverable stack-overflow DoS on long operator chains.** The
+  depth guard previously counted only recursive-descent nesting, so input that
+  built a very deep AST *iteratively* — long left-associative chains such as
+  `a+a+…+a`, `a OR a OR …`, `x::int::int…`, `t JOIN t JOIN …`, or
+  `SELECT…UNION…UNION…` — parsed without tripping the limit. A single valid input
+  under `MaxInputBytes` (≈8 MB) then crashed the process with
+  `fatal error: stack overflow` the moment the tree was passed to a recursive
+  consumer (`Deparse`, `Walk`, or a caller's own walk) — a fatal error that
+  `recover` cannot catch. The depth limit now bounds total AST depth, counting
+  these iterative chains as well, so any tree `Parse` returns is safe to traverse
+  recursively. Purely *wide* input (large `IN`/`VALUES`/projection lists) is
+  unaffected. Reported values, not depth, drive the new rejection, so legitimate
+  queries are unchanged.
+
+### Added
+- **`MaxNodes`** — a tunable ceiling (like `MaxInputBytes`) on the number of
+  expression atoms `Parse` will build from one input, a backstop against
+  memory-amplifying input that packs many nodes into few bytes.
+- The fuzz target now drives `Walk`, `Deparse`, and a re-parse of the deparsed
+  output on every successfully parsed input, so the stack-overflow class is
+  fuzz-visible (parsing alone never exercised the recursive consumers).
+
+### Fixed
+- **Deparse round-trip fidelity.** Nested symbolic prefix operators now keep a
+  separating space (`~ ~ ~ 1`, `- - 1`) so they no longer deparse into a single
+  merged operator token or a `--` comment, and function names that require
+  quoting (e.g. `"Weird Name"()`) are now quoted on output. Both previously
+  produced text that did not re-parse.
+
 ## [1.2.0] — 2026-06-29
 
 ### Added
